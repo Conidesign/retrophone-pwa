@@ -261,7 +261,9 @@ let pendingIncoming = null;
 let callTargetContact = null;
 let callRetryTimer = null;
 let callRetryDeadline = null;
-const CALL_RETRY_WINDOW_MS = 25000;
+// 70s plutôt que 25s : un hébergement gratuit (type Render) peut mettre 50s+ à se
+// réveiller avant même que la notification parte, il faut laisser cette marge.
+const CALL_RETRY_WINDOW_MS = 70000;
 const CALL_RETRY_INTERVAL_MS = 2000;
 
 const AVATARS = ["🦊","🐼","🐸","🦁","🐨","🐰","🐯","🐵"];
@@ -520,10 +522,37 @@ function setupCall(call, name) {
     showScreen("screen-incall");
     startTimer();
     playRemoteStream(remoteStream);
+    watchConnectionHealth(call);
   });
 
   call.on("close", () => endCallUI());
   call.on("error", () => endCallUI());
+}
+
+// Filet de sécurité "l'autre reste en ligne après avoir raccroché" : le message
+// de fermeture PeerJS ne parvient pas toujours (ex. l'autre app suspendue en
+// arrière-plan avant d'avoir pu l'envoyer). On surveille donc directement l'état
+// de la connexion WebRTC. "disconnected" peut être transitoire (petit délai de
+// grâce), mais "failed"/"closed" est définitif.
+let iceWatchTimer = null;
+function watchConnectionHealth(call) {
+  const pc = call.peerConnection;
+  if (!pc) return;
+  const onStateChange = () => {
+    const state = pc.connectionState || pc.iceConnectionState;
+    clearTimeout(iceWatchTimer);
+    if (state === "failed" || state === "closed") {
+      console.warn("Connexion coupée (état:", state, ") — fin d'appel détectée localement.");
+      endCallUI();
+    } else if (state === "disconnected") {
+      iceWatchTimer = setTimeout(() => {
+        console.warn("Connexion toujours coupée après délai de grâce — fin d'appel.");
+        endCallUI();
+      }, 8000);
+    }
+  };
+  pc.addEventListener("connectionstatechange", onStateChange);
+  pc.addEventListener("iceconnectionstatechange", onStateChange);
 }
 
 // BUG "haut-parleur silencieux" : l'élément <audio> était auparavant créé (et donc
@@ -576,6 +605,7 @@ function hangUp() {
 
 function endCallUI() {
   clearInterval(timerInterval);
+  clearTimeout(iceWatchTimer);
   stopRinging();
   currentCall = null;
   pendingIncoming = null;
@@ -597,11 +627,30 @@ async function warmUpMicAndAudio() {
   } catch (e) {
     console.warn("Micro non accordé pour l'instant :", e.message);
   }
-  // "Déverrouille" l'élément audio pendant qu'on est encore dans le geste
-  // utilisateur : certaines versions de Safari retiennent cette autorisation
-  // pour les lectures programmatiques suivantes sur ce même élément.
+  await unlockAudioElement();
+}
+
+// Un <audio>.play() SANS aucune source ne "débloque" rien de fiable sur iOS —
+// il faut une vraie lecture, même silencieuse, démarrée pendant le geste
+// utilisateur, pour que Safari autorise ensuite .play() par code sur ce même
+// élément (nécessaire pour entendre l'autre personne pendant l'appel).
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+async function unlockAudioElement() {
   const audioEl = document.getElementById("remoteAudio");
-  if (audioEl) audioEl.play().catch(() => {});
+  if (!audioEl) return;
+  try {
+    audioEl.src = SILENT_WAV;
+    await audioEl.play();
+    audioEl.pause();
+    audioEl.currentTime = 0;
+    audioEl.removeAttribute("src"); // libère la place pour srcObject plus tard
+    audioEl.load();
+    console.log("Élément audio débloqué pour la suite de la session.");
+  } catch (e) {
+    console.warn("Déblocage audio échoué (le bouton de secours prendra le relais) :", e.message);
+  }
 }
 
 // --- Wake Lock : empêche l'écran de s'éteindre par inactivité TANT QUE l'app
@@ -657,6 +706,15 @@ async function setupPushNotifications() {
 
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
+      if (Notification.permission === "denied") {
+        // Une fois refusée, iOS/Safari ne réaffiche plus JAMAIS la popup de
+        // demande — il n'y a qu'un seul endroit pour revenir en arrière.
+        setPushStatus(
+          "Notifications bloquées. Réglages iOS → fais défiler jusqu'à « Rétro » → active Notifications, puis rouvre l'app.",
+          "warn"
+        );
+        return;
+      }
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setPushStatus("Notifications refusées — les appels ne réveilleront pas l'app fermée.", "warn");
@@ -696,14 +754,46 @@ function checkInstallBanner() {
   if (!isStandalone && !dismissed) document.getElementById("installBanner").classList.add("show");
 }
 
+// PROBLÈME "notification reçue, mais pas d'appel entrant à l'ouverture" : le temps
+// que le destinataire remarque la notification et rouvre l'app, l'appelant a
+// souvent déjà abandonné ses tentatives (25 s, ou plus avec un serveur qui vient
+// de se réveiller). Plutôt que d'attendre passivement un appel qui ne viendra
+// peut-être plus, on RAPPELLE automatiquement l'appelant d'origine dès qu'on
+// rouvre l'app suite à une notification — comme on rappellerait un appel manqué.
+function handleWakeFromNotification(fromPeerId) {
+  if (!fromPeerId) return;
+  showScreen("screen-home");
+  setTimeout(() => {
+    // Si l'appel d'origine est finalement arrivé entre-temps, pas besoin de rappeler.
+    if (pendingIncoming || currentCall) return;
+    const contact = loadContacts().find((c) => c.id === fromPeerId) || { id: fromPeerId, name: "Quelqu'un" };
+    callbackAfterWake(contact, 0);
+  }, 2000);
+}
+
+function callbackAfterWake(contact, attempt) {
+  if (pendingIncoming || currentCall) return; // un appel est arrivé pendant l'attente
+  if (peer && peer.open) {
+    callContact(contact);
+    return;
+  }
+  if (attempt > 20) return; // ~10s d'attente max que notre propre connexion se rétablisse
+  setTimeout(() => callbackAfterWake(contact, attempt + 1), 500);
+}
+
 // Si le service worker relaie un clic de notification pendant que l'app est déjà chargée.
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
     if (event.data?.type === "notification-tapped") {
-      showScreen("screen-home"); // l'écran d'appel entrant s'affichera dès que peer.on('call') arrive
+      handleWakeFromNotification(event.data.fromPeerId);
     }
   });
 }
+
+// Cas où l'app était complètement fermée : le service worker rouvre une nouvelle
+// fenêtre avec ?incomingFrom=... (voir sw.js).
+const incomingFromParam = new URLSearchParams(location.search).get("incomingFrom");
+if (incomingFromParam) handleWakeFromNotification(incomingFromParam);
 
 renderContacts();
 initPeer();
