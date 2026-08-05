@@ -762,6 +762,16 @@ function checkInstallBanner() {
 // rouvre l'app suite à une notification — comme on rappellerait un appel manqué.
 function handleWakeFromNotification(fromPeerId) {
   if (!fromPeerId) return;
+
+  // BUG "je vois mes contacts alors que ça sonne" : cette fonction forçait
+  // l'écran d'accueil SANS vérifier si l'appel entrant était déjà arrivé
+  // (cas fréquent quand la page était juste mise en arrière-plan par iOS,
+  // pas totalement fermée — on tape sur la notif, la page revient au premier
+  // plan avec son état intact : pendingIncoming déjà présent, sonnerie déjà en
+  // cours). On respecte maintenant cet état existant plutôt que de l'écraser.
+  if (pendingIncoming) { showScreen("screen-incoming"); return; }
+  if (currentCall) { showScreen("screen-incall"); return; }
+
   showScreen("screen-home");
   setTimeout(() => {
     // Si l'appel d'origine est finalement arrivé entre-temps, pas besoin de rappeler.
