@@ -87,9 +87,16 @@
     transition: transform .08s;
   }
   .contactBtn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(139,90,60,0.25); }
-  .contactAvatar { font-size: 44px; }
-  .contactName { font-size: 17px; font-weight: 600; }
+  .contactAvatar { font-size: 44px; position: relative; }
+  .contactName { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
   .noContacts { color: #a08f80; font-size: 15px; max-width: 320px; line-height: 1.5; }
+
+  .presenceDot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #ccc; display: inline-block; flex: 0 0 auto;
+    transition: background-color .3s;
+  }
+  .presenceDot.online { background: var(--green); box-shadow: 0 0 0 2px rgba(76,175,125,0.25); }
 
   .bigAvatar { font-size: 90px; margin-bottom: 8px; }
   .bigName { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
@@ -310,10 +317,14 @@ function renderContacts() {
   list.forEach((c, i) => {
     const btn = document.createElement("div");
     btn.className = "contactBtn";
+    btn.dataset.contactId = c.id;
     btn.onclick = () => callContact(c);
-    btn.innerHTML = `<div class="contactAvatar">${AVATARS[i % AVATARS.length]}</div><div class="contactName">${escapeHtml(c.name)}</div>`;
+    btn.innerHTML =
+      `<div class="contactAvatar">${AVATARS[i % AVATARS.length]}</div>` +
+      `<div class="contactName"><span class="presenceDot" title="En ligne / hors ligne"></span>${escapeHtml(c.name)}</div>`;
     grid.appendChild(btn);
   });
+  refreshPresenceUI(); // applique tout de suite le dernier statut connu, avant le prochain sondage
 
   const ui = document.getElementById("contactListUI");
   ui.innerHTML = "";
@@ -377,6 +388,70 @@ function getOrCreateMyId() {
   return id;
 }
 
+// --- Présence : qui a l'app ouverte en ce moment ---
+// On envoie un battement de vie régulier au serveur tant que notre peer est
+// connecté, et on sonde le statut de nos contacts au même rythme. Ce n'est
+// pas instantané (jusqu'à ~15 s de décalage), mais suffisant pour un indicateur
+// "en ligne / hors ligne", et ça ne demande pas d'infra supplémentaire (juste
+// le serveur déjà utilisé pour les notifications).
+const PRESENCE_INTERVAL_MS = 15000;
+let presenceHeartbeatTimer = null;
+let presencePollTimer = null;
+let lastKnownPresence = {}; // contactId -> bool, mis à jour à chaque sondage
+
+function startPresenceHeartbeat() {
+  clearInterval(presenceHeartbeatTimer);
+  const send = () => {
+    fetch("/api/presence/ping", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peerId: peer?.id, name: myDisplayName() }),
+    }).catch(() => {}); // pas grave si ça rate une fois, le prochain battement rattrape
+  };
+  send();
+  presenceHeartbeatTimer = setInterval(send, PRESENCE_INTERVAL_MS);
+}
+
+// Best effort : prévenir le serveur qu'on part, pour ne pas apparaître "en
+// ligne" pendant tout le délai d'expiration. Pas fiable sur mobile (l'app peut
+// être tuée sans déclencher cet évènement) — c'est pour ça que le serveur a
+// aussi un timeout de son côté, qui reste la vraie garantie.
+document.addEventListener("pagehide", () => {
+  if (!peer?.id) return;
+  const payload = JSON.stringify({ peerId: peer.id });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon("/api/presence/offline", new Blob([payload], { type: "application/json" }));
+  }
+});
+
+function startPresencePolling() {
+  clearInterval(presencePollTimer);
+  const poll = async () => {
+    const ids = loadContacts().map((c) => c.id);
+    if (ids.length === 0) return;
+    try {
+      const res = await fetch(`/api/presence?ids=${encodeURIComponent(ids.join(","))}`);
+      if (!res.ok) return;
+      lastKnownPresence = await res.json();
+      refreshPresenceUI();
+    } catch (e) {
+      // Réseau indisponible un instant : on garde le dernier statut connu,
+      // sans faire disparaître les pastilles pour un simple raté.
+    }
+  };
+  poll();
+  presencePollTimer = setInterval(poll, PRESENCE_INTERVAL_MS);
+}
+
+function refreshPresenceUI() {
+  document.querySelectorAll("#contactGrid .contactBtn").forEach((btn) => {
+    const id = btn.dataset.contactId;
+    const dot = btn.querySelector(".presenceDot");
+    if (!dot) return;
+    dot.classList.toggle("online", !!lastKnownPresence[id]);
+  });
+}
+
 // --- WebRTC / PeerJS ---
 function initPeer() {
   const myId = getOrCreateMyId();
@@ -387,6 +462,8 @@ function initPeer() {
     document.getElementById("myDisplayName").value = myDisplayName() === "Un ami" ? "" : myDisplayName();
     document.getElementById("statusDot").classList.add("ready");
     document.getElementById("statusText").textContent = "Prêt";
+    startPresenceHeartbeat();
+    startPresencePolling();
   });
 
   peer.on("call", (call) => {

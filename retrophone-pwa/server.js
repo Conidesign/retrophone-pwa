@@ -101,6 +101,55 @@ app.post("/api/notify-call", async (req, res) => {
   }
 });
 
+// --- Présence ("qui a l'app ouverte en ce moment") ---
+//
+// Volontairement en mémoire (pas de fichier) : la présence n'a de sens que tant
+// que le serveur tourne, pas besoin de survivre à un redémarrage. Chaque
+// appareil envoie un battement de vie régulier tant que l'app est ouverte ;
+// on le considère "en ligne" tant qu'on a eu de ses nouvelles récemment.
+const presence = {}; // peerId -> { lastSeen, name }
+const ONLINE_THRESHOLD_MS = 40000; // ~2-3 battements manqués avant de considérer "hors ligne"
+
+app.post("/api/presence/ping", (req, res) => {
+  const { peerId, name } = req.body || {};
+  if (!peerId) return res.status(400).json({ error: "peerId requis" });
+  presence[peerId] = { lastSeen: Date.now(), name: name || "" };
+  res.json({ ok: true });
+});
+
+// L'appareil qui se ferme proprement peut le signaler explicitement (best
+// effort seulement : sur mobile, ce signal n'arrive pas toujours — le
+// timeout ci-dessus reste la vraie garantie de fraîcheur du statut).
+app.post("/api/presence/offline", (req, res) => {
+  const { peerId } = req.body || {};
+  if (peerId) delete presence[peerId];
+  res.json({ ok: true });
+});
+
+app.get("/api/presence", (req, res) => {
+  const ids = String(req.query.ids || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const now = Date.now();
+  const result = {};
+  for (const id of ids) {
+    const entry = presence[id];
+    result[id] = !!entry && now - entry.lastSeen < ONLINE_THRESHOLD_MS;
+  }
+  res.json(result);
+});
+
+// Ménage occasionnel pour ne pas accumuler indéfiniment des appareils qui ne
+// reviendront plus (purge après 24h d'inactivité — sans lien avec le seuil
+// "en ligne" ci-dessus, qui reste beaucoup plus court).
+setInterval(() => {
+  const now = Date.now();
+  for (const id of Object.keys(presence)) {
+    if (now - presence[id].lastSeen > 24 * 60 * 60 * 1000) delete presence[id];
+  }
+}, 60 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Téléphone Rétro (PWA + push) en écoute sur le port ${PORT}`);

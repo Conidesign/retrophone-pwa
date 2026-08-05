@@ -14,6 +14,11 @@ Ce que ça résout, et ce que ça ne résout pas :
   (quelques secondes) le temps que l'app se rouvre et que l'appel se connecte
   après le tap. Pour un vrai "ça sonne et je décroche instantanément, écran
   verrouillé", il faut la version app native avec CallKit + PushKit.
+- ✅ Pastille "en ligne" sur chaque contact : chaque appareil envoie un
+  battement de vie au serveur toutes les 15 s tant que l'app est ouverte ;
+  les autres sondent ce statut au même rythme (`/api/presence`). Décalage
+  possible jusqu'à ~15-30 s — pas du temps réel à la seconde, mais suffisant
+  pour savoir si un ami a son app active.
 
 ## Message "Notifications indisponibles" ?
 
