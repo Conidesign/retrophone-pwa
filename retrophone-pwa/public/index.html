@@ -242,6 +242,23 @@
   .copyBtn { border: none; background: var(--wood); color: white; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .contactRow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
   .contactRow input { flex: 1; }
+
+  .avatarPicker, .colorPicker { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .avatarOption {
+    width: 42px; height: 42px; border-radius: 12px; font-size: 22px;
+    border: 3px solid #e8dcc4; background: white; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .avatarOption.selected { border-color: var(--orange); background: #fdf1d8; }
+  .colorOption {
+    width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; padding: 0;
+  }
+  .colorOption.selected { border-color: var(--ink); }
+  .colorOption.c0 { background: var(--orange); }
+  .colorOption.c1 { background: var(--mustard); }
+  .colorOption.c2 { background: var(--mint); }
+  .colorOption.c3 { background: var(--fuchsia); }
   .addBtn, .closeBtn {
     margin-top: 16px; width: 100%; padding: 13px; border: none; border-radius: 14px;
     background: var(--mint); color: white; font-size: 16px; font-weight: 700; cursor: pointer;
@@ -337,6 +354,10 @@
         <button class="copyBtn" onclick="copyMyId()">Copier</button>
       </div>
       <div class="pushStatus" id="pushStatus">Notifications : vérification…</div>
+      <div class="pushStatus" id="wakeLockStatus">Écran maintenu allumé : vérification…</div>
+      <div class="hint">
+        L'écran reste allumé tant que l'app est ouverte au premier plan. Ça ne fonctionne plus si on appuie sur le bouton de verrouillage du téléphone ou qu'on change d'app — c'est une limite du web, pas de ce réglage.
+      </div>
 
       <label>Ajouter un contact</label>
       <div class="contactRow">
@@ -345,6 +366,13 @@
       <div class="contactRow">
         <input id="newContactId" placeholder="Identifiant de son appareil" />
       </div>
+
+      <label>Avatar</label>
+      <div class="avatarPicker" id="avatarPicker"></div>
+
+      <label>Couleur</label>
+      <div class="colorPicker" id="colorPicker"></div>
+
       <button class="addBtn" onclick="addContact()">Ajouter ce contact</button>
 
       <div class="contactList" id="contactListUI"></div>
@@ -461,13 +489,15 @@ function renderContacts() {
   empty.style.display = list.length === 0 ? "block" : "none";
   list.forEach((c, i) => {
     const btn = document.createElement("div");
-    // Une couleur franche par contact (c0-c3, cycle si plus de 4 amis) plutôt
-    // qu'un fond blanc uniforme — plus gai et ça aide à les reconnaître au coup d'œil.
-    btn.className = "contactBtn c" + (i % CONTACT_COLOR_COUNT);
+    // Avatar et couleur choisis par le parent à l'ajout (c.avatar / c.colorIndex) ;
+    // repli sur l'ancien tirage automatique pour les contacts créés avant cette option.
+    const avatar = c.avatar || AVATARS[i % AVATARS.length];
+    const colorIndex = typeof c.colorIndex === "number" ? c.colorIndex : i % CONTACT_COLOR_COUNT;
+    btn.className = "contactBtn c" + colorIndex;
     btn.dataset.contactId = c.id;
     btn.onclick = () => callContact(c);
     btn.innerHTML =
-      `<div class="contactAvatar">${AVATARS[i % AVATARS.length]}</div>` +
+      `<div class="contactAvatar">${avatar}</div>` +
       `<div class="contactName"><span class="presenceDot" title="En ligne / hors ligne"></span>${escapeHtml(c.name)}</div>` +
       `<button class="scheduleBtn" title="Proposer un rendez-vous">🗓️ Rendez-vous</button>`;
     btn.querySelector(".scheduleBtn").onclick = (ev) => {
@@ -481,9 +511,14 @@ function renderContacts() {
   const ui = document.getElementById("contactListUI");
   ui.innerHTML = "";
   list.forEach((c, i) => {
+    const avatar = c.avatar || AVATARS[i % AVATARS.length];
+    const colorIndex = typeof c.colorIndex === "number" ? c.colorIndex : i % CONTACT_COLOR_COUNT;
     const row = document.createElement("div");
     row.className = "contactListItem";
-    row.innerHTML = `<span>${escapeHtml(c.name)} — <code>${escapeHtml(c.id)}</code></span>`;
+    row.innerHTML =
+      `<span style="display:flex; align-items:center; gap:8px;">` +
+      `<span class="colorOption c${colorIndex}" style="width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:15px; cursor:default;">${avatar}</span>` +
+      `${escapeHtml(c.name)} — <code>${escapeHtml(c.id)}</code></span>`;
     const btn = document.createElement("button");
     btn.className = "removeBtn";
     btn.textContent = "Retirer";
@@ -491,6 +526,33 @@ function renderContacts() {
     row.appendChild(btn);
     ui.appendChild(row);
   });
+}
+
+// --- Sélecteur d'avatar/couleur pour un nouveau contact ---
+let newContactAvatar = AVATARS[0];
+let newContactColorIndex = 0;
+
+function renderNewContactPickers() {
+  const avatarBox = document.getElementById("avatarPicker");
+  avatarBox.innerHTML = "";
+  AVATARS.forEach((a) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "avatarOption" + (a === newContactAvatar ? " selected" : "");
+    b.textContent = a;
+    b.onclick = () => { newContactAvatar = a; renderNewContactPickers(); };
+    avatarBox.appendChild(b);
+  });
+
+  const colorBox = document.getElementById("colorPicker");
+  colorBox.innerHTML = "";
+  for (let i = 0; i < CONTACT_COLOR_COUNT; i++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "colorOption c" + i + (i === newContactColorIndex ? " selected" : "");
+    b.onclick = () => { newContactColorIndex = i; renderNewContactPickers(); };
+    colorBox.appendChild(b);
+  }
 }
 
 function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -523,10 +585,15 @@ function addContact() {
   const id = document.getElementById("newContactId").value.trim();
   if (!name || !id) return;
   const list = loadContacts();
-  list.push({ name, id });
+  list.push({ name, id, avatar: newContactAvatar, colorIndex: newContactColorIndex });
   saveContacts(list);
   document.getElementById("newContactName").value = "";
   document.getElementById("newContactId").value = "";
+  // Prépare des valeurs différentes pour le prochain ajout, plutôt que de
+  // retomber sur le même avatar/couleur par défaut à chaque fois.
+  newContactAvatar = AVATARS[list.length % AVATARS.length];
+  newContactColorIndex = list.length % CONTACT_COLOR_COUNT;
+  renderNewContactPickers();
   renderContacts();
 }
 
@@ -1199,19 +1266,44 @@ async function unlockAudioElement() {
 }
 
 // --- Wake Lock : empêche l'écran de s'éteindre par inactivité TANT QUE l'app
-// reste ouverte au premier plan (ne survit pas au verrouillage manuel). ---
+// reste ouverte au premier plan (ne survit pas au verrouillage manuel du
+// bouton, ni au passage à une autre app — c'est la limite du web, voir le
+// panneau réglages). ---
 let wakeLock = null;
+const wakeLockSupported = "wakeLock" in navigator;
+
+function setWakeLockStatus(text, cls) {
+  const el = document.getElementById("wakeLockStatus");
+  if (el) { el.textContent = text; el.className = "pushStatus " + (cls || ""); }
+}
+
 async function requestWakeLock() {
+  if (!wakeLockSupported) {
+    setWakeLockStatus("Écran maintenu allumé : non disponible sur ce navigateur.", "warn");
+    return;
+  }
+  if (wakeLock) return; // déjà actif, rien à refaire
   try {
-    if ("wakeLock" in navigator) {
-      wakeLock = await navigator.wakeLock.request("screen");
-      wakeLock.addEventListener("release", () => { wakeLock = null; });
-    }
-  } catch (e) { console.warn("Wake Lock indisponible :", e.message); }
+    wakeLock = await navigator.wakeLock.request("screen");
+    setWakeLockStatus("Écran maintenu allumé ✓", "ok");
+    wakeLock.addEventListener("release", () => {
+      wakeLock = null;
+      // Une coupure ici est normale dès que l'app quitte le premier plan —
+      // on ne l'affiche pas comme une erreur, le prochain tap la redemandera.
+    });
+  } catch (e) {
+    console.warn("Wake Lock refusé :", e.message);
+    setWakeLockStatus("Écran maintenu allumé : pas actif pour l'instant.", "warn");
+  }
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !wakeLock) requestWakeLock();
 });
+// iOS refuse parfois une demande de Wake Lock si elle n'est pas directement
+// liée à un geste utilisateur : en retentant à chaque tap dans l'app (pas
+// seulement au premier), on maximise les chances qu'il reste actif tant que
+// l'enfant utilise l'app.
+document.addEventListener("click", () => { if (!wakeLock) requestWakeLock(); });
 
 // --- Notifications push : réveillent le téléphone même verrouillé / app fermée ---
 function urlBase64ToUint8Array(base64String) {
@@ -1363,6 +1455,13 @@ if (incomingFromParam) handleWakeFromNotification(incomingFromParam);
 if (urlParams.get("openAppointments")) openAppointments();
 
 renderContacts();
+// Démarre le sélecteur sur le prochain avatar/couleur du cycle plutôt que
+// toujours le premier, pour varier un peu si plusieurs contacts sont ajoutés
+// à la suite au premier réglage de l'appareil.
+const existingContactCount = loadContacts().length;
+newContactAvatar = AVATARS[existingContactCount % AVATARS.length];
+newContactColorIndex = existingContactCount % CONTACT_COLOR_COUNT;
+renderNewContactPickers();
 initPeer();
 requestWakeLock();
 checkInstallBanner();
