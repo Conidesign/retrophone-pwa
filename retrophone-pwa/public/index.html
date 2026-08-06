@@ -53,8 +53,16 @@
   }
   #statusDot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; display: inline-block; margin-right: 6px; }
   #statusDot.ready { background: var(--green); }
-  #settingsBtn { border: none; background: transparent; font-size: 20px; opacity: 0.35; cursor: pointer; }
-  #settingsBtn:hover { opacity: 0.8; }
+  #settingsBtn, #appointmentsBtn { border: none; background: transparent; font-size: 20px; opacity: 0.35; cursor: pointer; position: relative; }
+  #settingsBtn:hover, #appointmentsBtn:hover { opacity: 0.8; }
+  #statusbarActions { display: flex; align-items: center; gap: 4px; }
+  .badgeCount {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--red); color: white; font-size: 10px; font-weight: 700;
+    border-radius: 50%; min-width: 16px; height: 16px; line-height: 16px; text-align: center;
+    display: none;
+  }
+  .badgeCount.show { display: block; }
 
   #installBanner {
     position: absolute; top: 34px; left: 10px; right: 10px;
@@ -98,6 +106,28 @@
   }
   .presenceDot.online { background: var(--green); box-shadow: 0 0 0 2px rgba(76,175,125,0.25); }
 
+  .scheduleBtn {
+    border: none; background: #f4ede0; color: var(--wood);
+    font-size: 13px; border-radius: 8px; padding: 4px 8px; margin-top: 2px; cursor: pointer;
+  }
+
+  .apptCard {
+    background: #f9f4e8; border: 1px solid #e8dcc4; border-radius: 12px;
+    padding: 12px; margin-bottom: 10px; text-align: left; font-size: 13.5px;
+  }
+  .apptCard .apptWhen { font-weight: 700; color: var(--wood); }
+  .apptCard .apptNote { color: #7a6b5c; font-size: 12.5px; margin-top: 2px; }
+  .apptCard .apptStatus { font-size: 12px; margin-top: 4px; color: #a08f80; }
+  .apptCard .apptActions { display: flex; gap: 8px; margin-top: 8px; }
+  .apptCard button {
+    border: none; border-radius: 8px; padding: 7px 10px; font-size: 12.5px; cursor: pointer; font-weight: 600;
+  }
+  .apptCard .accept { background: var(--green); color: white; }
+  .apptCard .decline { background: var(--red); color: white; }
+  .apptCard .calBtn { background: var(--wood); color: white; }
+  .apptCard .cancelBtn { background: #ddd; color: #444; }
+  .apptEmpty { text-align: center; color: #a08f80; font-size: 13.5px; padding: 20px 0; }
+
   .bigAvatar { font-size: 90px; margin-bottom: 8px; }
   .bigName { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
   .subLabel { font-size: 16px; color: #8a7a6d; margin-bottom: 34px; }
@@ -115,11 +145,12 @@
   @keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(1.08);} 100%{transform:scale(1);} }
   #callTimer { font-size: 15px; color: #8a7a6d; margin-bottom: 30px; }
 
-  #settingsPanel {
+  #settingsPanel, #appointmentsPanel, #scheduleModal {
     position: absolute; inset: 0; background: rgba(58,46,40,0.55);
     display: none; align-items: center; justify-content: center; z-index: 20;
   }
-  #settingsPanel.active { display: flex; }
+  #settingsPanel.active, #appointmentsPanel.active, #scheduleModal.active { display: flex; }
+  #scheduleModal { z-index: 21; } /* au-dessus du panneau rendez-vous si ouvert depuis là */
   .card {
     background: white; border-radius: 18px; padding: 24px;
     width: 92%; max-width: 400px; max-height: 85vh; overflow-y: auto;
@@ -160,7 +191,10 @@
 
   <div id="statusbar">
     <span><span id="statusDot"></span><span id="statusText">Connexion…</span></span>
-    <button id="settingsBtn" title="Espace parent (démo)">⚙️</button>
+    <div id="statusbarActions">
+      <button id="appointmentsBtn" title="Mes rendez-vous">🗓️<span class="badgeCount" id="apptBadge">0</span></button>
+      <button id="settingsBtn" title="Espace parent (démo)">⚙️</button>
+    </div>
   </div>
 
   <div id="installBanner">
@@ -239,6 +273,28 @@
         Version PWA : installe cette page sur l'écran d'accueil (Partager → Sur l'écran d'accueil) pour activer les notifications qui réveillent le téléphone même verrouillé. Sans installation, l'appel ne fonctionne que si l'app est déjà ouverte.
       </div>
       <button class="closeBtn" onclick="closeSettings()">Fermer</button>
+    </div>
+  </div>
+
+  <!-- Liste des rendez-vous (propositions reçues à traiter + rendez-vous confirmés) -->
+  <div id="appointmentsPanel">
+    <div class="card">
+      <h2>Mes rendez-vous</h2>
+      <div id="apptListUI"><div class="apptEmpty">Chargement…</div></div>
+      <button class="closeBtn" onclick="closeAppointments()">Fermer</button>
+    </div>
+  </div>
+
+  <!-- Mini-formulaire "proposer un rendez-vous à ce contact" -->
+  <div id="scheduleModal">
+    <div class="card">
+      <h2>Proposer un rendez-vous à <span id="scheduleContactName"></span></h2>
+      <label>Date et heure</label>
+      <input type="datetime-local" id="scheduleWhen" />
+      <label>Petit mot (facultatif)</label>
+      <input id="scheduleNote" placeholder="ex: pour se raconter la journée" maxlength="200" />
+      <button class="addBtn" onclick="submitSchedule()">Envoyer la proposition</button>
+      <button class="closeBtn" onclick="closeScheduleModal()">Annuler</button>
     </div>
   </div>
 
@@ -321,7 +377,12 @@ function renderContacts() {
     btn.onclick = () => callContact(c);
     btn.innerHTML =
       `<div class="contactAvatar">${AVATARS[i % AVATARS.length]}</div>` +
-      `<div class="contactName"><span class="presenceDot" title="En ligne / hors ligne"></span>${escapeHtml(c.name)}</div>`;
+      `<div class="contactName"><span class="presenceDot" title="En ligne / hors ligne"></span>${escapeHtml(c.name)}</div>` +
+      `<button class="scheduleBtn" title="Proposer un rendez-vous">🗓️ Rendez-vous</button>`;
+    btn.querySelector(".scheduleBtn").onclick = (ev) => {
+      ev.stopPropagation(); // ne pas déclencher l'appel en plus d'ouvrir le formulaire
+      openScheduleModal(c);
+    };
     grid.appendChild(btn);
   });
   refreshPresenceUI(); // applique tout de suite le dernier statut connu, avant le prochain sondage
@@ -387,6 +448,251 @@ function getOrCreateMyId() {
   }
   return id;
 }
+
+// --- Rendez-vous : "on s'appelle plus tard" quand personne n'est en ligne ---
+let scheduleTargetContact = null;
+let apptPollTimer = null;
+
+function openScheduleModal(contact) {
+  scheduleTargetContact = contact;
+  document.getElementById("scheduleContactName").textContent = contact.name;
+  const whenInput = document.getElementById("scheduleWhen");
+  // Pré-remplit avec "dans 1h" plutôt qu'un champ vide, plus simple pour un enfant.
+  const suggested = new Date(Date.now() + 60 * 60 * 1000);
+  suggested.setSeconds(0, 0);
+  whenInput.min = toLocalInputValue(new Date());
+  whenInput.value = toLocalInputValue(suggested);
+  document.getElementById("scheduleNote").value = "";
+  document.getElementById("scheduleModal").classList.add("active");
+}
+function closeScheduleModal() {
+  document.getElementById("scheduleModal").classList.remove("active");
+  scheduleTargetContact = null;
+}
+function toLocalInputValue(date) {
+  // <input type="datetime-local"> attend "AAAA-MM-JJThh:mm" en heure locale.
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+async function submitSchedule() {
+  if (!scheduleTargetContact) return;
+  const whenValue = document.getElementById("scheduleWhen").value;
+  if (!whenValue) { alert("Choisis une date et une heure."); return; }
+  const localDate = new Date(whenValue);
+  if (isNaN(localDate.getTime()) || localDate.getTime() < Date.now() - 60000) {
+    alert("Choisis une date dans le futur.");
+    return;
+  }
+  const note = document.getElementById("scheduleNote").value.trim();
+
+  try {
+    const res = await fetch("/api/appointments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fromPeerId: getOrCreateMyId(),
+        fromName: myDisplayName(),
+        toPeerId: scheduleTargetContact.id,
+        toName: scheduleTargetContact.name,
+        // On convertit en ISO UTC absolu avant l'envoi : sinon "2026-08-10T16:30"
+        // serait interprété en heure locale du téléphone ET en heure locale du
+        // serveur séparément, ce qui décale l'heure réelle du rappel.
+        whenISO: localDate.toISOString(),
+        note,
+      }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    const sentToName = scheduleTargetContact.name; // capturé AVANT closeScheduleModal(), qui vide scheduleTargetContact
+    closeScheduleModal();
+    alert(`Proposition envoyée à ${sentToName} !`);
+    loadAndRenderAppointments();
+  } catch (e) {
+    alert("Impossible d'envoyer la proposition : " + e.message);
+  }
+}
+
+function openAppointments() {
+  document.getElementById("appointmentsPanel").classList.add("active");
+  loadAndRenderAppointments();
+}
+function closeAppointments() {
+  document.getElementById("appointmentsPanel").classList.remove("active");
+}
+
+async function loadAndRenderAppointments() {
+  const myId = getOrCreateMyId();
+  const ui = document.getElementById("apptListUI");
+  try {
+    const res = await fetch(`/api/appointments?peerId=${encodeURIComponent(myId)}`);
+    if (!res.ok) throw new Error("Requête échouée");
+    const list = await res.json();
+    renderAppointmentsList(list, myId);
+    updateApptBadge(list, myId);
+  } catch (e) {
+    if (ui) ui.innerHTML = `<div class="apptEmpty">Impossible de charger les rendez-vous pour l'instant.</div>`;
+  }
+}
+
+function updateApptBadge(list, myId) {
+  const pendingForMe = list.filter((a) => a.status === "proposed" && a.toPeerId === myId).length;
+  const badge = document.getElementById("apptBadge");
+  if (!badge) return;
+  badge.textContent = pendingForMe;
+  badge.classList.toggle("show", pendingForMe > 0);
+}
+
+function renderAppointmentsList(list, myId) {
+  const ui = document.getElementById("apptListUI");
+  if (!ui) return;
+  if (list.length === 0) {
+    ui.innerHTML = `<div class="apptEmpty">Aucun rendez-vous pour l'instant. Propose-en un depuis la fiche d'un ami (🗓️).</div>`;
+    return;
+  }
+  ui.innerHTML = "";
+  list.forEach((appt) => {
+    const iAmSender = appt.fromPeerId === myId;
+    const otherName = iAmSender ? appt.toName || "ton ami" : appt.fromName || "ton ami";
+    const when = formatWhenLocal(appt.whenISO);
+
+    const card = document.createElement("div");
+    card.className = "apptCard";
+
+    let statusLine = "";
+    let actionsHtml = "";
+    if (appt.status === "proposed") {
+      if (iAmSender) {
+        statusLine = "En attente de réponse…";
+        actionsHtml = `<div class="apptActions"><button class="cancelBtn" data-action="cancel">Annuler</button></div>`;
+      } else {
+        statusLine = "Proposition à traiter";
+        actionsHtml = `<div class="apptActions">
+          <button class="accept" data-action="accept">Accepter</button>
+          <button class="decline" data-action="decline">Refuser</button>
+        </div>`;
+      }
+    } else if (appt.status === "accepted") {
+      statusLine = "Confirmé ✓";
+      actionsHtml = `<div class="apptActions">
+        <button class="calBtn" data-action="ics">📅 Ajouter à mon calendrier</button>
+        <button class="cancelBtn" data-action="cancel">Annuler</button>
+      </div>`;
+    } else if (appt.status === "declined") {
+      statusLine = "Refusé";
+    } else if (appt.status === "cancelled") {
+      statusLine = "Annulé";
+    }
+
+    card.innerHTML =
+      `<div class="apptWhen">${escapeHtml(otherName)} — ${when}</div>` +
+      (appt.note ? `<div class="apptNote">${escapeHtml(appt.note)}</div>` : "") +
+      `<div class="apptStatus">${statusLine}</div>` +
+      actionsHtml;
+
+    const acceptBtn = card.querySelector('[data-action="accept"]');
+    const declineBtn = card.querySelector('[data-action="decline"]');
+    const cancelBtn = card.querySelector('[data-action="cancel"]');
+    const icsBtn = card.querySelector('[data-action="ics"]');
+    if (acceptBtn) acceptBtn.onclick = () => respondToAppointment(appt.id, "accepted");
+    if (declineBtn) declineBtn.onclick = () => respondToAppointment(appt.id, "declined");
+    if (cancelBtn) cancelBtn.onclick = () => cancelAppointment(appt.id);
+    if (icsBtn) icsBtn.onclick = () => downloadICS(appt, myId);
+
+    ui.appendChild(card);
+  });
+}
+
+function formatWhenLocal(whenISO) {
+  try {
+    return new Date(whenISO).toLocaleString("fr-FR", {
+      weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+  } catch (e) {
+    return whenISO;
+  }
+}
+
+async function respondToAppointment(id, response) {
+  try {
+    const res = await fetch(`/api/appointments/${id}/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peerId: getOrCreateMyId(), response }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    loadAndRenderAppointments();
+  } catch (e) {
+    alert("Action impossible : " + e.message);
+  }
+}
+
+async function cancelAppointment(id) {
+  try {
+    const res = await fetch(`/api/appointments/${id}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ peerId: getOrCreateMyId() }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    loadAndRenderAppointments();
+  } catch (e) {
+    alert("Action impossible : " + e.message);
+  }
+}
+
+function startAppointmentsPolling() {
+  clearInterval(apptPollTimer);
+  loadAndRenderAppointments(); // met à jour le badge tout de suite, sans attendre le premier tick
+  apptPollTimer = setInterval(loadAndRenderAppointments, 20000);
+}
+
+// --- Génère un vrai événement de calendrier (.ics) avec un rappel intégré,
+// pour que le rendez-vous vive dans le calendrier natif du téléphone (avec
+// SES alertes système), pas seulement dans cette app. ---
+function escapeICS(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+}
+function toICSDate(date) {
+  return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+}
+function buildICS(appt, myId) {
+  const start = new Date(appt.whenISO);
+  const end = new Date(start.getTime() + 15 * 60000); // 15 minutes par défaut
+  const otherName = myId === appt.fromPeerId ? appt.toName : appt.fromName;
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Telephone Retro//FR",
+    "BEGIN:VEVENT",
+    `UID:${appt.id}@retrophone`,
+    `DTSTAMP:${toICSDate(new Date())}`,
+    `DTSTART:${toICSDate(start)}`,
+    `DTEND:${toICSDate(end)}`,
+    `SUMMARY:${escapeICS("Appel avec " + (otherName || "un ami"))}`,
+    appt.note ? `DESCRIPTION:${escapeICS(appt.note)}` : "",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Rendez-vous téléphonique",
+    "TRIGGER:-PT10M",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].filter(Boolean);
+  return lines.join("\r\n");
+}
+function downloadICS(appt, myId) {
+  const ics = buildICS(appt, myId);
+  const blob = new Blob([ics], { type: "text/calendar" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rendez-vous.ics";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+}
+
+document.getElementById("appointmentsBtn").onclick = openAppointments;
 
 // --- Présence : qui a l'app ouverte en ce moment ---
 // On envoie un battement de vie régulier au serveur tant que notre peer est
@@ -869,23 +1175,28 @@ function callbackAfterWake(contact, attempt) {
 }
 
 // Si le service worker relaie un clic de notification pendant que l'app est déjà chargée.
+// "kind" distingue un appel (peut déclencher le rappel automatique) d'un simple
+// rendez-vous (doit juste ouvrir la liste, jamais initier d'appel automatique).
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type === "notification-tapped") {
-      handleWakeFromNotification(event.data.fromPeerId);
-    }
+    if (event.data?.type !== "notification-tapped") return;
+    if (event.data.kind === "appointment") openAppointments();
+    else handleWakeFromNotification(event.data.fromPeerId);
   });
 }
 
 // Cas où l'app était complètement fermée : le service worker rouvre une nouvelle
-// fenêtre avec ?incomingFrom=... (voir sw.js).
-const incomingFromParam = new URLSearchParams(location.search).get("incomingFrom");
+// fenêtre avec ?incomingFrom=... ou ?openAppointments=1 (voir sw.js).
+const urlParams = new URLSearchParams(location.search);
+const incomingFromParam = urlParams.get("incomingFrom");
 if (incomingFromParam) handleWakeFromNotification(incomingFromParam);
+if (urlParams.get("openAppointments")) openAppointments();
 
 renderContacts();
 initPeer();
 requestWakeLock();
 checkInstallBanner();
+startAppointmentsPolling();
 </script>
 </body>
 </html>

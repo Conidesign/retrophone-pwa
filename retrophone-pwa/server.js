@@ -82,6 +82,7 @@ app.post("/api/notify-call", async (req, res) => {
   }
 
   const payload = JSON.stringify({
+    kind: "call",
     title: "Téléphone Rétro",
     body: `${fromName || "Quelqu'un"} t'appelle`,
     fromPeerId: fromPeerId || "",
@@ -100,6 +101,24 @@ app.post("/api/notify-call", async (req, res) => {
     res.status(502).json({ error: "Échec d'envoi de la notification push" });
   }
 });
+
+// Petit utilitaire réutilisé par les rendez-vous : envoie une notif "best effort"
+// (n'échoue jamais bruyamment — l'app fonctionne aussi sans notification si le
+// destinataire n'y est pas abonné).
+async function pushTo(peerId, payloadObj) {
+  const subs = loadSubs();
+  const subscription = subs[peerId];
+  if (!subscription) return;
+  try {
+    await webpush.sendNotification(subscription, JSON.stringify(payloadObj));
+  } catch (err) {
+    console.warn(`[push] échec d'envoi à ${peerId} :`, err.statusCode);
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      delete subs[peerId];
+      saveSubs(subs);
+    }
+  }
+}
 
 // --- Présence ("qui a l'app ouverte en ce moment") ---
 //
@@ -149,6 +168,163 @@ setInterval(() => {
     if (now - presence[id].lastSeen > 24 * 60 * 60 * 1000) delete presence[id];
   }
 }, 60 * 60 * 1000);
+
+// --- Rendez-vous ("on s'appelle plus tard") ---
+//
+// Contrairement à la présence, ça doit survivre à un redémarrage du serveur
+// (un rendez-vous pris la veille doit encore exister le lendemain) : stockage
+// fichier, comme les abonnements push.
+const APPTS_FILE = path.join(DATA_DIR, "appointments.json");
+function loadAppointments() {
+  if (fs.existsSync(APPTS_FILE)) return JSON.parse(fs.readFileSync(APPTS_FILE, "utf8"));
+  return [];
+}
+function saveAppointments(list) {
+  fs.writeFileSync(APPTS_FILE, JSON.stringify(list, null, 2));
+}
+
+// Propose un rendez-vous : notifie le destinataire, qui devra l'accepter/refuser.
+app.post("/api/appointments", async (req, res) => {
+  const { fromPeerId, fromName, toPeerId, toName, whenISO, note } = req.body || {};
+  if (!fromPeerId || !toPeerId || !whenISO) {
+    return res.status(400).json({ error: "fromPeerId, toPeerId et whenISO requis" });
+  }
+  if (isNaN(new Date(whenISO).getTime())) {
+    return res.status(400).json({ error: "whenISO invalide" });
+  }
+
+  const appt = {
+    id: "appt-" + Math.random().toString(36).slice(2, 10),
+    fromPeerId,
+    fromName: fromName || "Un ami",
+    toPeerId,
+    toName: toName || "",
+    whenISO,
+    note: (note || "").slice(0, 200),
+    status: "proposed", // proposed -> accepted | declined | cancelled
+    createdAt: Date.now(),
+    remindedAt10: false,
+    remindedAtStart: false,
+  };
+
+  const list = loadAppointments();
+  list.push(appt);
+  saveAppointments(list);
+
+  const when = formatWhenForNotif(whenISO);
+  await pushTo(toPeerId, {
+    kind: "appointment",
+    title: "Téléphone Rétro",
+    body: `${appt.fromName} te propose un rendez-vous ${when}`,
+  });
+
+  res.json(appt);
+});
+
+// Liste les rendez-vous concernant un appareil (proposés par lui ou à lui),
+// en excluant ce qui est trop vieux pour rester utile à afficher.
+app.get("/api/appointments", (req, res) => {
+  const peerId = req.query.peerId;
+  if (!peerId) return res.status(400).json({ error: "peerId requis" });
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const list = loadAppointments().filter(
+    (a) =>
+      (a.fromPeerId === peerId || a.toPeerId === peerId) &&
+      (new Date(a.whenISO).getTime() > cutoff || a.status === "proposed")
+  );
+  list.sort((a, b) => new Date(a.whenISO) - new Date(b.whenISO));
+  res.json(list);
+});
+
+// Le destinataire accepte ou refuse une proposition.
+app.post("/api/appointments/:id/respond", async (req, res) => {
+  const { peerId, response } = req.body || {};
+  if (!["accepted", "declined"].includes(response)) {
+    return res.status(400).json({ error: "response doit être 'accepted' ou 'declined'" });
+  }
+  const list = loadAppointments();
+  const appt = list.find((a) => a.id === req.params.id);
+  if (!appt) return res.status(404).json({ error: "Rendez-vous introuvable" });
+  if (appt.toPeerId !== peerId) {
+    return res.status(403).json({ error: "Seul le destinataire peut répondre à cette proposition" });
+  }
+
+  appt.status = response;
+  saveAppointments(list);
+
+  const when = formatWhenForNotif(appt.whenISO);
+  await pushTo(appt.fromPeerId, {
+    kind: "appointment",
+    title: "Téléphone Rétro",
+    body:
+      response === "accepted"
+        ? `${appt.toName || "Ton ami"} a accepté le rendez-vous ${when} ✓`
+        : `${appt.toName || "Ton ami"} a décliné le rendez-vous ${when}`,
+  });
+
+  res.json(appt);
+});
+
+// L'une ou l'autre partie peut annuler.
+app.post("/api/appointments/:id/cancel", (req, res) => {
+  const { peerId } = req.body || {};
+  const list = loadAppointments();
+  const appt = list.find((a) => a.id === req.params.id);
+  if (!appt) return res.status(404).json({ error: "Rendez-vous introuvable" });
+  if (appt.fromPeerId !== peerId && appt.toPeerId !== peerId) {
+    return res.status(403).json({ error: "Pas partie de ce rendez-vous" });
+  }
+  appt.status = "cancelled";
+  saveAppointments(list);
+  res.json(appt);
+});
+
+function formatWhenForNotif(whenISO) {
+  try {
+    return new Date(whenISO).toLocaleString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return whenISO;
+  }
+}
+
+// Vérifie régulièrement les rendez-vous confirmés à venir et envoie un rappel
+// push aux deux participants — en plus de l'alerte du calendrier natif (si le
+// rendez-vous y a été ajouté), pour ceux qui ne l'auraient pas fait.
+setInterval(async () => {
+  const list = loadAppointments();
+  const now = Date.now();
+  let changed = false;
+
+  for (const appt of list) {
+    if (appt.status !== "accepted") continue;
+    const start = new Date(appt.whenISO).getTime();
+    if (isNaN(start)) continue;
+
+    if (!appt.remindedAt10 && start - now > 0 && start - now <= 10 * 60 * 1000) {
+      appt.remindedAt10 = true;
+      changed = true;
+      const body = "Rendez-vous téléphonique dans 10 minutes !";
+      await pushTo(appt.fromPeerId, { kind: "appointment", title: "Téléphone Rétro", body });
+      await pushTo(appt.toPeerId, { kind: "appointment", title: "Téléphone Rétro", body });
+    }
+
+    if (!appt.remindedAtStart && now >= start && now - start < 5 * 60 * 1000) {
+      appt.remindedAtStart = true;
+      changed = true;
+      const body = "C'est l'heure de votre rendez-vous téléphonique !";
+      await pushTo(appt.fromPeerId, { kind: "appointment", title: "Téléphone Rétro", body });
+      await pushTo(appt.toPeerId, { kind: "appointment", title: "Téléphone Rétro", body });
+    }
+  }
+
+  if (changed) saveAppointments(list);
+}, 30 * 1000);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

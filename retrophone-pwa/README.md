@@ -19,6 +19,14 @@ Ce que ça résout, et ce que ça ne résout pas :
   les autres sondent ce statut au même rythme (`/api/presence`). Décalage
   possible jusqu'à ~15-30 s — pas du temps réel à la seconde, mais suffisant
   pour savoir si un ami a son app active.
+- ✅ Rendez-vous ("🗓️ Rendez-vous" sur la fiche d'un contact) : si personne
+  n'est en ligne, on propose une date/heure. L'autre reçoit une notification,
+  accepte ou refuse depuis "Mes rendez-vous" (icône 🗓️ en haut). Un rendez-vous
+  confirmé peut être ajouté au calendrier natif du téléphone (bouton "📅 Ajouter
+  à mon calendrier", génère un .ics avec un rappel intégré 10 min avant — ce
+  rappel-là vient du vrai calendrier du téléphone, pas de cette app). En plus,
+  le serveur envoie lui-même une notification de rappel (10 min avant + à
+  l'heure) à ceux qui n'auraient pas ajouté l'événement à leur calendrier.
 
 ## Message "Notifications indisponibles" ?
 
