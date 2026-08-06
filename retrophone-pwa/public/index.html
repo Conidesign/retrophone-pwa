@@ -53,7 +53,10 @@
   }
   #statusDot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; display: inline-block; margin-right: 6px; }
   #statusDot.ready { background: var(--green); }
-  #settingsBtn, #appointmentsBtn { border: none; background: transparent; font-size: 20px; opacity: 0.35; cursor: pointer; position: relative; }
+  #settingsBtn, #appointmentsBtn {
+    border: none; background: transparent; font-size: 20px; opacity: 0.35; cursor: pointer;
+    position: relative; transition: opacity .2s, transform .2s;
+  }
   #settingsBtn:hover, #appointmentsBtn:hover { opacity: 0.8; }
   #statusbarActions { display: flex; align-items: center; gap: 4px; }
   .badgeCount {
@@ -63,18 +66,49 @@
     display: none;
   }
   .badgeCount.show { display: block; }
+  /* Icône rendez-vous : quand une proposition attend une réponse, on sort du
+     style "discret" (opacité 0.35 comme ⚙️) pour quelque chose qu'un enfant
+     remarque vraiment — pleine opacité, plus grande, animée, fond coloré. */
+  #appointmentsBtn.attention {
+    opacity: 1;
+    font-size: 28px;
+    background: #fff3d6;
+    border-radius: 50%;
+    padding: 4px 8px;
+    animation: apptPulse 1s infinite;
+  }
+  @keyframes apptPulse { 0%{transform:scale(1);} 50%{transform:scale(1.18);} 100%{transform:scale(1);} }
 
-  #installBanner {
+  #installBanner, #apptBanner {
     position: absolute; top: 34px; left: 10px; right: 10px;
-    background: #fff3d6; border: 1px solid #e8cf9a; border-radius: 12px;
-    padding: 10px 12px; font-size: 12.5px; color: #6b5d34; line-height: 1.4;
+    border-radius: 12px;
+    padding: 10px 12px; font-size: 12.5px; line-height: 1.4;
     display: none; z-index: 9; text-align: left;
   }
+  #installBanner { background: #fff3d6; border: 1px solid #e8cf9a; color: #6b5d34; }
   #installBanner.show { display: block; }
   #installBanner button {
     border: none; background: none; color: #8b5a3c; font-weight: 700; font-size: 12px;
     float: right; cursor: pointer;
   }
+  /* Bannière "nouveau rendez-vous" : nettement plus voyante que l'installBanner
+     (couleur vive + petite animation d'entrée) puisque c'est justement le
+     problème à corriger — trop discret jusqu'ici. */
+  #apptBanner {
+    background: var(--green); color: white; font-size: 14px; font-weight: 600;
+    box-shadow: 0 6px 16px rgba(76,175,125,0.4);
+    animation: apptBannerIn .3s ease-out;
+  }
+  #apptBanner.show { display: block; }
+  #apptBanner .apptBannerRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  #apptBanner button.viewBtn {
+    border: none; background: white; color: var(--green); font-weight: 700; font-size: 13px;
+    border-radius: 8px; padding: 6px 12px; cursor: pointer; flex: 0 0 auto;
+  }
+  #apptBanner button.closeBannerBtn {
+    border: none; background: none; color: white; font-size: 14px; cursor: pointer; opacity: 0.8;
+  }
+  @keyframes apptBannerIn { 0%{transform:translateY(-14px); opacity:0;} 100%{transform:translateY(0); opacity:1;} }
 
   #homeTitle { font-size: 22px; font-weight: 600; margin-bottom: 28px; color: var(--wood); }
   #contactGrid {
@@ -200,6 +234,16 @@
   <div id="installBanner">
     <button onclick="dismissInstallBanner()">✕</button>
     Pour que les appels puissent réveiller ce téléphone même verrouillé, ajoute cette page à l'écran d'accueil : Partager ⬆️ → « Sur l'écran d'accueil ».
+  </div>
+
+  <!-- Bannière bien visible dès qu'une NOUVELLE proposition de rendez-vous arrive
+       (en plus de la notification système et de l'icône 🗓️ qui s'anime). -->
+  <div id="apptBanner">
+    <div class="apptBannerRow">
+      <span id="apptBannerText"></span>
+      <button class="viewBtn" onclick="viewAppointmentFromBanner()">Voir</button>
+      <button class="closeBannerBtn" onclick="dismissApptBanner()">✕</button>
+    </div>
   </div>
 
   <!-- Élément audio permanent : créé une seule fois au chargement (et non à la
@@ -535,11 +579,73 @@ async function loadAndRenderAppointments() {
 }
 
 function updateApptBadge(list, myId) {
-  const pendingForMe = list.filter((a) => a.status === "proposed" && a.toPeerId === myId).length;
+  const pendingForMe = list.filter((a) => a.status === "proposed" && a.toPeerId === myId);
   const badge = document.getElementById("apptBadge");
-  if (!badge) return;
-  badge.textContent = pendingForMe;
-  badge.classList.toggle("show", pendingForMe > 0);
+  const btn = document.getElementById("appointmentsBtn");
+  if (badge) {
+    badge.textContent = pendingForMe.length;
+    badge.classList.toggle("show", pendingForMe.length > 0);
+  }
+  // L'icône elle-même sort du mode "discret" (comme ⚙️) tant qu'une réponse
+  // est attendue — c'était le principal reproche : trop transparent, un
+  // enfant ne le remarque pas.
+  if (btn) btn.classList.toggle("attention", pendingForMe.length > 0);
+
+  announceBrandNewProposals(pendingForMe);
+}
+
+// Détecte les propositions qu'on n'a encore JAMAIS signalées bruyamment (son +
+// bannière), pour ne le faire qu'une fois par proposition — pas à chaque
+// sondage de 20 s tant qu'elle reste sans réponse.
+function announceBrandNewProposals(pendingForMe) {
+  const seen = new Set(JSON.parse(localStorage.getItem("rp_seen_appt_alert_ids") || "[]"));
+  const brandNew = pendingForMe.filter((a) => !seen.has(a.id));
+  if (brandNew.length === 0) return;
+
+  brandNew.forEach((a) => seen.add(a.id));
+  localStorage.setItem("rp_seen_appt_alert_ids", JSON.stringify([...seen]));
+
+  const latest = brandNew[brandNew.length - 1];
+  playAppointmentChime();
+  showApptBanner(`🗓️ ${latest.fromName || "Un ami"} te propose un rendez-vous !`);
+}
+
+function showApptBanner(text) {
+  const banner = document.getElementById("apptBanner");
+  document.getElementById("apptBannerText").textContent = text;
+  // Évite que les deux bannières (install + rendez-vous) se superposent si les
+  // deux sont visibles au même moment.
+  const installShowing = document.getElementById("installBanner").classList.contains("show");
+  banner.style.top = installShowing ? "90px" : "34px";
+  banner.classList.add("show");
+}
+function dismissApptBanner() {
+  document.getElementById("apptBanner").classList.remove("show");
+}
+function viewAppointmentFromBanner() {
+  dismissApptBanner();
+  openAppointments();
+}
+
+// Un petit "ding-dong" distinct de la sonnerie d'appel (pour ne pas laisser
+// croire à un enfant qu'on l'appelle alors que c'est juste une proposition
+// de rendez-vous).
+function playAppointmentChime() {
+  const ctx = getAudioCtx();
+  const t = ctx.currentTime;
+  [660, 880].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const start = t + i * 0.16;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.25, start + 0.02);
+    gain.gain.linearRampToValueAtTime(0, start + 0.3);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.32);
+  });
 }
 
 function renderAppointmentsList(list, myId) {
@@ -1179,9 +1285,17 @@ function callbackAfterWake(contact, attempt) {
 // rendez-vous (doit juste ouvrir la liste, jamais initier d'appel automatique).
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (event) => {
-    if (event.data?.type !== "notification-tapped") return;
-    if (event.data.kind === "appointment") openAppointments();
-    else handleWakeFromNotification(event.data.fromPeerId);
+    if (event.data?.type === "notification-tapped") {
+      if (event.data.kind === "appointment") openAppointments();
+      else handleWakeFromNotification(event.data.fromPeerId);
+      return;
+    }
+    if (event.data?.type === "push-received" && event.data.kind === "appointment") {
+      // L'app est déjà ouverte (premier plan ou proche) : on se resynchronise
+      // tout de suite au lieu d'attendre le prochain sondage de 20 s — c'est ce
+      // qui déclenche la bannière + le son instantanément.
+      loadAndRenderAppointments();
+    }
   });
 }
 

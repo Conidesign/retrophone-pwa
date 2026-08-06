@@ -42,7 +42,20 @@ self.addEventListener("push", (event) => {
     data: { kind: data.kind, fromPeerId: data.fromPeerId || "" },
   };
 
-  event.waitUntil(self.registration.showNotification(data.title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title, options),
+      // Si l'app est déjà ouverte (premier plan ou arrière-plan proche), on la
+      // prévient tout de suite plutôt que d'attendre le prochain sondage —
+      // c'est ce qui permet à la bannière "nouveau rendez-vous" et au son
+      // d'alerte de réagir immédiatement, sans dépendre du clic sur la notif.
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+        clientList.forEach((client) =>
+          client.postMessage({ type: "push-received", kind: data.kind, fromPeerId: data.fromPeerId || "" })
+        );
+      }),
+    ])
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {
