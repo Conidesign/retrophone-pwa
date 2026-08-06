@@ -7,26 +7,42 @@
 
 <link rel="manifest" href="/manifest.json" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-<meta name="theme-color" content="#8b5a3c" />
+<meta name="theme-color" content="#e8622c" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Rétro" />
 <meta name="mobile-web-app-capable" content="yes" />
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
+  /* Palette "rétro-pop" : les couleurs franches et acidulées des téléphones à
+     cadran des années 70 (orange brûlé, moutarde, vert menthe, fuchsia) sur un
+     fond crème chaud — garde l'esprit rétro tout en étant lisible et joyeux
+     pour des enfants : gros aplats de couleur, pas de dégradés, fort contraste. */
   :root {
-    --cream: #fdf6e9;
+    --cream: #fdf1d8;
     --wood: #8b5a3c;
-    --red: #e05b4f;
+    --ink: #4a2e22;
+    --red: #e0473f;
     --green: #4caf7d;
-    --ink: #3a2e28;
+
+    --orange: #e8622c;
+    --orange-dark: #b84a1f;
+    --mustard: #e8b33d;
+    --mustard-dark: #b3801f;
+    --mint: #2e9e86;
+    --mint-dark: #1f7562;
+    --fuchsia: #d9427f;
+    --fuchsia-dark: #a62b5d;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; padding: 0; height: 100%;
     background: var(--cream);
-    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-family: "Baloo 2", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     color: var(--ink);
     overflow: hidden;
   }
@@ -38,46 +54,58 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: 24px 24px 96px; /* marge basse pour ne pas passer sous la barre de navigation */
     text-align: center;
   }
   .screen.active { display: flex; }
 
   #statusbar {
     position: absolute; top: 0; left: 0; right: 0;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 14px;
-    font-size: 13px;
-    color: #8a7a6d;
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #a8896f;
     z-index: 10;
   }
-  #statusDot { width: 9px; height: 9px; border-radius: 50%; background: #ccc; display: inline-block; margin-right: 6px; }
-  #statusDot.ready { background: var(--green); }
-  #settingsBtn, #appointmentsBtn {
-    border: none; background: transparent; font-size: 20px; opacity: 0.35; cursor: pointer;
-    position: relative; transition: opacity .2s, transform .2s;
+  #statusDot { width: 8px; height: 8px; border-radius: 50%; background: #ccc; display: inline-block; margin-right: 6px; }
+  #statusDot.ready { background: var(--mint); }
+
+  /* Barre de navigation basse : remplace les petites icônes discrètes du haut
+     (⚙️ / 🗓️) par de gros boutons ronds et colorés, bien plus visibles et
+     faciles à toucher pour un enfant. */
+  #bottomNav {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: center; gap: 22px;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--cream);
+    border-top: 3px solid rgba(139,90,60,0.15);
+    z-index: 10;
   }
-  #settingsBtn:hover, #appointmentsBtn:hover { opacity: 0.8; }
-  #statusbarActions { display: flex; align-items: center; gap: 4px; }
+  .navBtn {
+    border: none; cursor: pointer; position: relative;
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; color: white;
+    box-shadow: 0 4px 0 rgba(0,0,0,0.12);
+    transition: transform .1s;
+  }
+  .navBtn:active { transform: translateY(3px); box-shadow: none; }
+  #homeBtn { background: var(--orange); }
+  #settingsBtn { background: var(--wood); }
+  #appointmentsBtn { background: var(--mint); }
   .badgeCount {
     position: absolute; top: -4px; right: -4px;
-    background: var(--red); color: white; font-size: 10px; font-weight: 700;
-    border-radius: 50%; min-width: 16px; height: 16px; line-height: 16px; text-align: center;
+    background: var(--red); color: white; font-size: 11px; font-weight: 800;
+    border-radius: 50%; min-width: 20px; height: 20px; line-height: 20px; text-align: center;
+    border: 2px solid var(--cream);
     display: none;
   }
   .badgeCount.show { display: block; }
-  /* Icône rendez-vous : quand une proposition attend une réponse, on sort du
-     style "discret" (opacité 0.35 comme ⚙️) pour quelque chose qu'un enfant
-     remarque vraiment — pleine opacité, plus grande, animée, fond coloré. */
-  #appointmentsBtn.attention {
-    opacity: 1;
-    font-size: 28px;
-    background: #fff3d6;
-    border-radius: 50%;
-    padding: 4px 8px;
-    animation: apptPulse 1s infinite;
-  }
-  @keyframes apptPulse { 0%{transform:scale(1);} 50%{transform:scale(1.18);} 100%{transform:scale(1);} }
+  /* Bouton rendez-vous : quand une proposition attend une réponse, il grossit et
+     pulse pour qu'un enfant le remarque vraiment — plus question qu'il reste
+     discret dans un coin. */
+  #appointmentsBtn.attention { animation: apptPulse 1s infinite; }
+  @keyframes apptPulse { 0%{transform:scale(1);} 50%{transform:scale(1.15);} 100%{transform:scale(1);} }
 
   #installBanner, #apptBanner {
     position: absolute; top: 34px; left: 10px; right: 10px;
@@ -110,74 +138,84 @@
   }
   @keyframes apptBannerIn { 0%{transform:translateY(-14px); opacity:0;} 100%{transform:translateY(0); opacity:1;} }
 
-  #homeTitle { font-size: 22px; font-weight: 600; margin-bottom: 28px; color: var(--wood); }
+  #homeTitle { font-size: 26px; font-weight: 800; margin-bottom: 26px; color: var(--orange-dark); }
   #contactGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 20px;
     width: 100%;
-    max-width: 520px;
+    max-width: 540px;
   }
   .contactBtn {
-    background: white;
-    border: 4px solid var(--wood);
-    border-radius: 28px;
-    padding: 18px 8px;
+    border: 5px solid var(--wood);
+    border-radius: 32px;
+    padding: 22px 10px;
     display: flex; flex-direction: column; align-items: center; gap: 8px;
     cursor: pointer;
-    box-shadow: 0 6px 0 rgba(139,90,60,0.25);
+    box-shadow: 0 7px 0 rgba(0,0,0,0.18);
     transition: transform .08s;
+    color: white;
   }
-  .contactBtn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(139,90,60,0.25); }
-  .contactAvatar { font-size: 44px; position: relative; }
-  .contactName { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-  .noContacts { color: #a08f80; font-size: 15px; max-width: 320px; line-height: 1.5; }
+  .contactBtn:active { transform: translateY(5px); box-shadow: none; }
+  /* Une couleur franche par contact plutôt qu'un fond blanc uniforme : plus
+     gai, et ça aide un enfant à reconnaître un ami d'un coup d'œil, même
+     avant de lire le prénom. */
+  .contactBtn.c0 { background: var(--orange); border-color: var(--orange-dark); }
+  .contactBtn.c1 { background: var(--mustard); border-color: var(--mustard-dark); color: var(--ink); }
+  .contactBtn.c2 { background: var(--mint); border-color: var(--mint-dark); }
+  .contactBtn.c3 { background: var(--fuchsia); border-color: var(--fuchsia-dark); }
+  .contactAvatar { font-size: 52px; position: relative; }
+  .contactName { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .noContacts { color: #a8896f; font-size: 16px; max-width: 320px; line-height: 1.6; font-weight: 500; }
 
+  /* Couleurs neutres (blanc translucide) plutôt que gris/vert : elles restent
+     lisibles quelle que soit la couleur d'aplat du contact (c0 à c3). */
   .presenceDot {
-    width: 9px; height: 9px; border-radius: 50%;
-    background: #ccc; display: inline-block; flex: 0 0 auto;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,0.35); display: inline-block; flex: 0 0 auto;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
     transition: background-color .3s;
   }
-  .presenceDot.online { background: var(--green); box-shadow: 0 0 0 2px rgba(76,175,125,0.25); }
+  .presenceDot.online { background: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.7); }
 
   .scheduleBtn {
-    border: none; background: #f4ede0; color: var(--wood);
-    font-size: 13px; border-radius: 8px; padding: 4px 8px; margin-top: 2px; cursor: pointer;
+    border: none; background: rgba(255,255,255,0.3); color: inherit;
+    font-size: 13px; font-weight: 700; border-radius: 20px; padding: 5px 10px; margin-top: 2px; cursor: pointer;
   }
 
   .apptCard {
-    background: #f9f4e8; border: 1px solid #e8dcc4; border-radius: 12px;
-    padding: 12px; margin-bottom: 10px; text-align: left; font-size: 13.5px;
+    background: #fffaf0; border: 2px solid #f0dfb8; border-radius: 16px;
+    padding: 14px; margin-bottom: 12px; text-align: left; font-size: 14px;
   }
-  .apptCard .apptWhen { font-weight: 700; color: var(--wood); }
+  .apptCard .apptWhen { font-weight: 700; color: var(--orange-dark); }
   .apptCard .apptNote { color: #7a6b5c; font-size: 12.5px; margin-top: 2px; }
-  .apptCard .apptStatus { font-size: 12px; margin-top: 4px; color: #a08f80; }
-  .apptCard .apptActions { display: flex; gap: 8px; margin-top: 8px; }
+  .apptCard .apptStatus { font-size: 12.5px; margin-top: 4px; color: #a8896f; font-weight: 600; }
+  .apptCard .apptActions { display: flex; gap: 8px; margin-top: 10px; }
   .apptCard button {
-    border: none; border-radius: 8px; padding: 7px 10px; font-size: 12.5px; cursor: pointer; font-weight: 600;
+    border: none; border-radius: 10px; padding: 9px 12px; font-size: 13px; cursor: pointer; font-weight: 700;
   }
-  .apptCard .accept { background: var(--green); color: white; }
+  .apptCard .accept { background: var(--mint); color: white; }
   .apptCard .decline { background: var(--red); color: white; }
-  .apptCard .calBtn { background: var(--wood); color: white; }
-  .apptCard .cancelBtn { background: #ddd; color: #444; }
-  .apptEmpty { text-align: center; color: #a08f80; font-size: 13.5px; padding: 20px 0; }
+  .apptCard .calBtn { background: var(--orange); color: white; }
+  .apptCard .cancelBtn { background: #e8dcc4; color: var(--ink); }
+  .apptEmpty { text-align: center; color: #a8896f; font-size: 14px; padding: 20px 0; font-weight: 500; }
 
-  .bigAvatar { font-size: 90px; margin-bottom: 8px; }
-  .bigName { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
-  .subLabel { font-size: 16px; color: #8a7a6d; margin-bottom: 34px; }
-  .callActions { display: flex; gap: 30px; }
+  .bigAvatar { font-size: 100px; margin-bottom: 10px; }
+  .bigName { font-size: 32px; font-weight: 800; margin-bottom: 6px; color: var(--orange-dark); }
+  .subLabel { font-size: 17px; color: #a8896f; margin-bottom: 36px; font-weight: 600; }
+  .callActions { display: flex; gap: 34px; }
   .roundBtn {
-    width: 84px; height: 84px; border-radius: 50%;
-    border: none; font-size: 34px; color: white; cursor: pointer;
+    width: 96px; height: 96px; border-radius: 50%;
+    border: none; font-size: 40px; color: white; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 5px 0 rgba(0,0,0,0.15);
+    box-shadow: 0 6px 0 rgba(0,0,0,0.15);
   }
-  .roundBtn:active { transform: translateY(4px); box-shadow: none; }
-  .roundBtn.green { background: var(--green); }
+  .roundBtn:active { transform: translateY(5px); box-shadow: none; }
+  .roundBtn.green { background: var(--mint); }
   .roundBtn.red { background: var(--red); }
   .pulse { animation: pulse 1.1s infinite; }
   @keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(1.08);} 100%{transform:scale(1);} }
-  #callTimer { font-size: 15px; color: #8a7a6d; margin-bottom: 30px; }
+  #callTimer { font-size: 16px; color: #a8896f; margin-bottom: 32px; font-weight: 600; }
 
   #settingsPanel, #appointmentsPanel, #scheduleModal {
     position: absolute; inset: 0; background: rgba(58,46,40,0.55);
@@ -186,37 +224,39 @@
   #settingsPanel.active, #appointmentsPanel.active, #scheduleModal.active { display: flex; }
   #scheduleModal { z-index: 21; } /* au-dessus du panneau rendez-vous si ouvert depuis là */
   .card {
-    background: white; border-radius: 18px; padding: 24px;
+    background: #fffaf0; border-radius: 22px; padding: 24px;
     width: 92%; max-width: 400px; max-height: 85vh; overflow-y: auto;
-    text-align: left;
+    text-align: left; border: 3px solid #f0dfb8;
   }
-  .card h2 { margin-top: 0; font-size: 19px; color: var(--wood); }
-  .card label { font-size: 13px; color: #6b5d52; display: block; margin: 12px 0 4px; }
+  .card h2 { margin-top: 0; font-size: 21px; font-weight: 800; color: var(--orange-dark); }
+  .card label { font-size: 13px; color: #6b5d52; display: block; margin: 12px 0 4px; font-weight: 600; }
   .card input {
-    width: 100%; padding: 9px 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
+    width: 100%; padding: 10px 12px; border: 2px solid #e8dcc4; border-radius: 10px; font-size: 14px;
+    font-family: inherit; background: white;
   }
   .myIdBox {
-    background: #f4ede0; border-radius: 10px; padding: 10px 12px; font-size: 14px;
+    background: #f4ede0; border-radius: 12px; padding: 10px 12px; font-size: 14px;
     display: flex; justify-content: space-between; align-items: center; margin: 6px 0 4px;
   }
   .myIdBox code { font-weight: 700; font-size: 15px; letter-spacing: 0.5px; }
-  .copyBtn { border: none; background: var(--wood); color: white; border-radius: 6px; padding: 5px 9px; font-size: 12px; cursor: pointer; }
+  .copyBtn { border: none; background: var(--wood); color: white; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .contactRow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
   .contactRow input { flex: 1; }
   .addBtn, .closeBtn {
-    margin-top: 16px; width: 100%; padding: 11px; border: none; border-radius: 10px;
-    background: var(--green); color: white; font-size: 15px; font-weight: 600; cursor: pointer;
+    margin-top: 16px; width: 100%; padding: 13px; border: none; border-radius: 14px;
+    background: var(--mint); color: white; font-size: 16px; font-weight: 700; cursor: pointer;
+    font-family: inherit;
   }
-  .closeBtn { background: #ddd; color: #444; margin-top: 8px; }
+  .closeBtn { background: #e8dcc4; color: var(--ink); margin-top: 8px; }
   .contactList { margin-top: 14px; }
   .contactListItem {
     display: flex; justify-content: space-between; align-items: center;
     padding: 8px 0; border-bottom: 1px solid #eee; font-size: 14px;
   }
-  .removeBtn { border: none; background: none; color: var(--red); font-size: 13px; cursor: pointer; }
-  .hint { font-size: 12px; color: #a08f80; margin-top: 10px; line-height: 1.5; }
-  .pushStatus { font-size: 12.5px; margin-top: 4px; }
-  .pushStatus.ok { color: var(--green); }
+  .removeBtn { border: none; background: none; color: var(--red); font-size: 13px; font-weight: 700; cursor: pointer; }
+  .hint { font-size: 12.5px; color: #a8896f; margin-top: 10px; line-height: 1.5; }
+  .pushStatus { font-size: 13px; margin-top: 4px; font-weight: 600; }
+  .pushStatus.ok { color: var(--mint-dark); }
   .pushStatus.warn { color: #c98a2c; }
 </style>
 </head>
@@ -225,10 +265,6 @@
 
   <div id="statusbar">
     <span><span id="statusDot"></span><span id="statusText">Connexion…</span></span>
-    <div id="statusbarActions">
-      <button id="appointmentsBtn" title="Mes rendez-vous">🗓️<span class="badgeCount" id="apptBadge">0</span></button>
-      <button id="settingsBtn" title="Espace parent (démo)">⚙️</button>
-    </div>
   </div>
 
   <div id="installBanner">
@@ -255,7 +291,7 @@
     <div id="homeTitle">Qui veux-tu appeler ?</div>
     <div id="contactGrid"></div>
     <div class="noContacts" id="noContactsMsg" style="display:none;">
-      Aucun ami ajouté pour l'instant. Un parent peut en ajouter via l'icône ⚙️ en haut à droite.
+      Aucun ami ajouté pour l'instant. Un parent peut en ajouter via l'icône ⚙️ en bas de l'écran.
     </div>
   </div>
 
@@ -342,6 +378,14 @@
     </div>
   </div>
 
+  <!-- Barre basse : remplace les petites icônes discrètes du haut par de gros
+       boutons ronds et colorés, bien plus visibles pour un enfant. -->
+  <div id="bottomNav">
+    <button class="navBtn" id="homeBtn" title="Accueil">🏠</button>
+    <button class="navBtn" id="appointmentsBtn" title="Mes rendez-vous">🗓️<span class="badgeCount" id="apptBadge">0</span></button>
+    <button class="navBtn" id="settingsBtn" title="Espace parent (démo)">⚙️</button>
+  </div>
+
 </div>
 
 <script>
@@ -374,6 +418,7 @@ const CALL_RETRY_WINDOW_MS = 70000;
 const CALL_RETRY_INTERVAL_MS = 2000;
 
 const AVATARS = ["🦊","🐼","🐸","🦁","🐨","🐰","🐯","🐵"];
+const CONTACT_COLOR_COUNT = 4; // correspond aux classes CSS .c0 à .c3
 
 // --- Sonnerie synthétisée (pas de fichier audio externe) ---
 let audioCtx = null;
@@ -416,7 +461,9 @@ function renderContacts() {
   empty.style.display = list.length === 0 ? "block" : "none";
   list.forEach((c, i) => {
     const btn = document.createElement("div");
-    btn.className = "contactBtn";
+    // Une couleur franche par contact (c0-c3, cycle si plus de 4 amis) plutôt
+    // qu'un fond blanc uniforme — plus gai et ça aide à les reconnaître au coup d'œil.
+    btn.className = "contactBtn c" + (i % CONTACT_COLOR_COUNT);
     btn.dataset.contactId = c.id;
     btn.onclick = () => callContact(c);
     btn.innerHTML =
@@ -456,6 +503,15 @@ function showScreen(id) {
 function openSettings() { document.getElementById("settingsPanel").classList.add("active"); }
 function closeSettings() { document.getElementById("settingsPanel").classList.remove("active"); }
 document.getElementById("settingsBtn").onclick = openSettings;
+
+// Bouton "Accueil" de la barre basse : ferme tout panneau ouvert et revient
+// à l'écran d'accueil (utile si un enfant est perdu dans les réglages).
+document.getElementById("homeBtn").onclick = () => {
+  closeSettings();
+  closeAppointments();
+  closeScheduleModal();
+  showScreen("screen-home");
+};
 
 function copyMyId() {
   const id = document.getElementById("myPeerId").textContent;
