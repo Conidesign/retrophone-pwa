@@ -72,10 +72,12 @@
 
   /* Barre de navigation basse : remplace les petites icônes discrètes du haut
      (⚙️ / 🗓️) par de gros boutons ronds et colorés, bien plus visibles et
-     faciles à toucher pour un enfant. */
+     faciles à toucher pour un enfant. (Le bouton "Accueil" a été retiré : dans
+     cette appli, on revient toujours aux contacts en fermant les panneaux —
+     un bouton dédié n'apportait rien en pratique.) */
   #bottomNav {
     position: absolute; left: 0; right: 0; bottom: 0;
-    display: flex; align-items: center; justify-content: center; gap: 22px;
+    display: flex; align-items: center; justify-content: center; gap: 36px;
     padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
     background: var(--cream);
     border-top: 3px solid rgba(139,90,60,0.15);
@@ -90,7 +92,6 @@
     transition: transform .1s;
   }
   .navBtn:active { transform: translateY(3px); box-shadow: none; }
-  #homeBtn { background: var(--orange); }
   #settingsBtn { background: var(--wood); }
   #appointmentsBtn { background: var(--mint); }
   .badgeCount {
@@ -198,6 +199,7 @@
   .apptCard .decline { background: var(--red); color: white; }
   .apptCard .calBtn { background: var(--orange); color: white; }
   .apptCard .cancelBtn { background: #e8dcc4; color: var(--ink); }
+  .apptCard .deleteBtn { background: transparent; color: #a8896f; font-size: 12px; padding: 6px 10px; box-shadow: none; }
   .apptEmpty { text-align: center; color: #a8896f; font-size: 14px; padding: 20px 0; font-weight: 500; }
 
   .bigAvatar { font-size: 100px; margin-bottom: 10px; }
@@ -409,7 +411,6 @@
   <!-- Barre basse : remplace les petites icônes discrètes du haut par de gros
        boutons ronds et colorés, bien plus visibles pour un enfant. -->
   <div id="bottomNav">
-    <button class="navBtn" id="homeBtn" title="Accueil">🏠</button>
     <button class="navBtn" id="appointmentsBtn" title="Mes rendez-vous">🗓️<span class="badgeCount" id="apptBadge">0</span></button>
     <button class="navBtn" id="settingsBtn" title="Espace parent (démo)">⚙️</button>
   </div>
@@ -565,15 +566,6 @@ function showScreen(id) {
 function openSettings() { document.getElementById("settingsPanel").classList.add("active"); }
 function closeSettings() { document.getElementById("settingsPanel").classList.remove("active"); }
 document.getElementById("settingsBtn").onclick = openSettings;
-
-// Bouton "Accueil" de la barre basse : ferme tout panneau ouvert et revient
-// à l'écran d'accueil (utile si un enfant est perdu dans les réglages).
-document.getElementById("homeBtn").onclick = () => {
-  closeSettings();
-  closeAppointments();
-  closeScheduleModal();
-  showScreen("screen-home");
-};
 
 function copyMyId() {
   const id = document.getElementById("myPeerId").textContent;
@@ -812,6 +804,11 @@ function renderAppointmentsList(list, myId) {
       statusLine = "Annulé";
     }
 
+    // Le bouton "Supprimer" (croix, discret) est toujours disponible, quel que
+    // soit le statut : il retire le rendez-vous de la liste pour de bon (utile
+    // pour faire le ménage), contrairement à "Annuler" qui garde une trace.
+    actionsHtml += `<div class="apptActions"><button class="deleteBtn" data-action="delete" title="Supprimer ce rendez-vous">🗑️ Supprimer</button></div>`;
+
     card.innerHTML =
       `<div class="apptWhen">${escapeHtml(otherName)} — ${when}</div>` +
       (appt.note ? `<div class="apptNote">${escapeHtml(appt.note)}</div>` : "") +
@@ -822,10 +819,12 @@ function renderAppointmentsList(list, myId) {
     const declineBtn = card.querySelector('[data-action="decline"]');
     const cancelBtn = card.querySelector('[data-action="cancel"]');
     const icsBtn = card.querySelector('[data-action="ics"]');
+    const deleteBtn = card.querySelector('[data-action="delete"]');
     if (acceptBtn) acceptBtn.onclick = () => respondToAppointment(appt.id, "accepted");
     if (declineBtn) declineBtn.onclick = () => respondToAppointment(appt.id, "declined");
     if (cancelBtn) cancelBtn.onclick = () => cancelAppointment(appt.id);
     if (icsBtn) icsBtn.onclick = () => downloadICS(appt, myId);
+    if (deleteBtn) deleteBtn.onclick = () => deleteAppointment(appt.id);
 
     ui.appendChild(card);
   });
@@ -861,6 +860,22 @@ async function cancelAppointment(id) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ peerId: getOrCreateMyId() }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    loadAndRenderAppointments();
+  } catch (e) {
+    alert("Action impossible : " + e.message);
+  }
+}
+
+async function deleteAppointment(id) {
+  // Suppression définitive : une petite confirmation évite qu'un enfant efface
+  // par erreur un rendez-vous en tapant trop vite.
+  if (!confirm("Supprimer ce rendez-vous pour de bon ?")) return;
+  try {
+    const myId = getOrCreateMyId();
+    const res = await fetch(`/api/appointments/${id}?peerId=${encodeURIComponent(myId)}`, {
+      method: "DELETE",
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     loadAndRenderAppointments();

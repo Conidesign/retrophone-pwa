@@ -104,6 +104,31 @@ Après déploiement, chaque famille ouvre l'URL fournie, l'ajoute à l'écran
 d'accueil, et échange les identifiants d'appareil comme dans la version
 précédente du prototype (via l'icône ⚙️).
 
+### ⚠️ Important sur Render (plan gratuit) : les rendez-vous/abonnements disparaissent
+
+Sur le plan **gratuit** de Render, le service se met en veille après ~15 min
+sans requête, et se réveille dans un conteneur "propre" à la requête suivante.
+Les fichiers `appointments.json`, `subscriptions.json` et `vapid-keys.json`
+sont réécrits à chaque démarrage, donc **tout ce qui a été enregistré depuis
+le dernier démarrage est perdu** — c'est ce qui explique un rendez-vous
+accepté qui "disparaît après quelques heures".
+
+Deux façons de corriger ça, au choix :
+
+1. **Disque persistant Render (solution la plus simple, payante ~7-8 $/mois
+   au total)** : passer le service au plan "Starter", ajouter un "Persistent
+   Disk" (1 Go suffit largement) monté par exemple sur `/data`, puis dans
+   Render → *Environment*, ajouter la variable `DATA_DIR` = `/data`. Le
+   serveur (`server.js`) lit déjà cette variable — aucune autre modification
+   nécessaire, un redéploiement suffit.
+2. **Rester gratuit, avec un stockage externe persistant** (ex. Upstash
+   Redis, gratuit) : demande une petite adaptation du code pour lire/écrire
+   les données là-bas au lieu de fichiers locaux. Possible sur demande si tu
+   préfères cette option.
+
+Sans l'une des deux, le prototype reste utilisable pour tester, mais pas
+fiable pour un usage réel avec plusieurs familles.
+
 ## Limites connues (prototype, pas prêt pour la production)
 
 - Signalisation WebRTC via le broker public de démo PeerJS + serveurs STUN

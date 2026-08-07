@@ -15,7 +15,33 @@ const path = require("path");
 const express = require("express");
 const webpush = require("web-push");
 
-const DATA_DIR = __dirname;
+// IMPORTANT — persistance des données :
+// Sur l'offre gratuite de Render (et la plupart des hébergeurs "free tier"),
+// le système de fichiers du conteneur est ÉPHÉMÈRE : tout fichier écrit ici
+// est perdu à chaque redémarrage, redéploiement, OU mise en veille du service
+// après inactivité (le plan gratuit met le service en veille après ~15 min
+// sans requête, et le réveil recrée un conteneur "propre"). C'est très
+// probablement la cause d'un rendez-vous accepté qui "disparaît après
+// quelques heures" : le service s'est juste rendormi puis réveillé entre deux.
+//
+// Pour que les données survivent réellement, DATA_DIR doit pointer vers un
+// disque persistant. Deux options :
+//   1. Passer le service en plan payant "Starter" + attacher un "Persistent
+//      Disk" Render (ex: monté sur /data), puis définir la variable
+//      d'environnement DATA_DIR=/data dans Render → Settings → Environment.
+//   2. Rester gratuit et migrer vers un stockage externe persistant (ex:
+//      Upstash Redis, gratuit) — nécessite une petite adaptation du code.
+// Sans l'une de ces deux options, ce prototype restera sujet à des pertes de
+// données sur l'hébergement gratuit.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+if (!process.env.DATA_DIR) {
+  console.warn(
+    "[stockage] DATA_DIR non défini : les fichiers sont écrits dans le dossier de l'appli. " +
+      "Sur Render (plan gratuit en particulier), ce dossier NE PERSISTE PAS entre deux redémarrages " +
+      "du service — les rendez-vous et abonnements push peuvent disparaître. " +
+      "Voir les commentaires en haut de server.js pour la solution."
+  );
+}
 const KEYS_FILE = path.join(DATA_DIR, "vapid-keys.json");
 const SUBS_FILE = path.join(DATA_DIR, "subscriptions.json");
 
@@ -277,6 +303,23 @@ app.post("/api/appointments/:id/cancel", (req, res) => {
   appt.status = "cancelled";
   saveAppointments(list);
   res.json(appt);
+});
+
+// Supprime définitivement un rendez-vous de la liste (contrairement à "cancel",
+// qui garde une trace avec le statut "Annulé", ceci le fait disparaître pour de
+// bon — utile pour faire le ménage dans les vieux rendez-vous refusés/annulés).
+app.delete("/api/appointments/:id", (req, res) => {
+  const peerId = req.query.peerId || (req.body && req.body.peerId);
+  const list = loadAppointments();
+  const idx = list.findIndex((a) => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: "Rendez-vous introuvable" });
+  const appt = list[idx];
+  if (appt.fromPeerId !== peerId && appt.toPeerId !== peerId) {
+    return res.status(403).json({ error: "Pas partie de ce rendez-vous" });
+  }
+  list.splice(idx, 1);
+  saveAppointments(list);
+  res.json({ ok: true });
 });
 
 function formatWhenForNotif(whenISO) {
