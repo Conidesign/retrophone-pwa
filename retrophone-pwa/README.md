@@ -113,20 +113,32 @@ sont réécrits à chaque démarrage, donc **tout ce qui a été enregistré dep
 le dernier démarrage est perdu** — c'est ce qui explique un rendez-vous
 accepté qui "disparaît après quelques heures".
 
-Deux façons de corriger ça, au choix :
+Trois façons de corriger ça, au choix :
 
-1. **Disque persistant Render (solution la plus simple, payante ~7-8 $/mois
-   au total)** : passer le service au plan "Starter", ajouter un "Persistent
-   Disk" (1 Go suffit largement) monté par exemple sur `/data`, puis dans
-   Render → *Environment*, ajouter la variable `DATA_DIR` = `/data`. Le
-   serveur (`server.js`) lit déjà cette variable — aucune autre modification
-   nécessaire, un redéploiement suffit.
-2. **Rester gratuit, avec un stockage externe persistant** (ex. Upstash
-   Redis, gratuit) : demande une petite adaptation du code pour lire/écrire
-   les données là-bas au lieu de fichiers locaux. Possible sur demande si tu
-   préfères cette option.
+1. **Réutiliser un hébergement PHP existant (gratuit, recommandé si tu as
+   déjà un site perso)** : le dossier `php-store/` fourni avec ce projet est
+   un tout petit service PHP qui lit/écrit un fichier JSON par donnée — et le
+   stockage fichier d'un hébergement PHP classique, lui, persiste vraiment
+   dans la durée (contrairement au conteneur Render gratuit). Étapes :
+   - Uploader le dossier `php-store/` (avec `store.php`, `data/` et son
+     `.htaccess`) sur ton site PHP, par ex. dans `/retro-store/`.
+   - Dans `php-store/store.php`, remplacer `CHANGE_MOI_...` par une longue
+     phrase secrète aléatoire.
+   - Vérifier que `php-store/data/` est accessible en écriture par PHP
+     (généralement le cas par défaut après upload FTP).
+   - Dans Render → le service → *Environment*, ajouter :
+     `PHP_STORE_URL` = `https://tondomaine.fr/retro-store/store.php` et
+     `PHP_STORE_SECRET` = la même phrase secrète.
+   - Redéployer. Les logs Render doivent afficher "Stockage distant activé".
+2. **Disque persistant Render (payant, ~7-8 $/mois au total)** : passer le
+   service au plan "Starter", ajouter un "Persistent Disk" (1 Go suffit
+   largement) monté par exemple sur `/data`, puis dans Render → *Environment*,
+   ajouter la variable `DATA_DIR` = `/data`. Le serveur lit déjà cette
+   variable — aucune autre modification nécessaire.
+3. **Base de données externe** (ex. Upstash Redis, gratuit) : demande une
+   petite adaptation du code, possible sur demande.
 
-Sans l'une des deux, le prototype reste utilisable pour tester, mais pas
+Sans l'une des trois, le prototype reste utilisable pour tester, mais pas
 fiable pour un usage réel avec plusieurs familles.
 
 ## Limites connues (prototype, pas prêt pour la production)
