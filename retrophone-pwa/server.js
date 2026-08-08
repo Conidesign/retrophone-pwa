@@ -41,7 +41,11 @@ const APPTS_FILE = path.join(DATA_DIR, "appointments.json");
 // un hébergement web classique que beaucoup de gens ont déjà.
 const PHP_STORE_URL = process.env.PHP_STORE_URL;
 const PHP_STORE_SECRET = process.env.PHP_STORE_SECRET;
-const USE_REMOTE_STORE = !!(PHP_STORE_URL && PHP_STORE_SECRET);
+// "let" plutôt que "const" : si le store distant est injoignable au démarrage
+// (mauvaise config, pare-feu de l'hébergement PHP...), on bascule sur le
+// stockage fichier local plutôt que de planter tout le service — mieux vaut
+// une app qui tourne sans persistance qu'une app qui ne démarre pas du tout.
+let USE_REMOTE_STORE = !!(PHP_STORE_URL && PHP_STORE_SECRET);
 
 if (!USE_REMOTE_STORE && !process.env.DATA_DIR) {
   console.warn(
@@ -54,11 +58,30 @@ if (!USE_REMOTE_STORE && !process.env.DATA_DIR) {
   console.log(`[stockage] Stockage distant activé via ${PHP_STORE_URL}`);
 }
 
+// Un User-Agent/Accept "normal" (au lieu des valeurs par défaut de fetch,
+// souvent absentes ou marquées "node") évite qu'un pare-feu anti-bot côté
+// hébergement (mod_security, Cloudflare, etc.) ne bloque la requête avant
+// même qu'elle n'atteigne store.php — c'est la cause la plus fréquente d'un
+// 403 ici (store.php lui-même ne renvoie jamais 403, seulement 401/400/405).
+const REMOTE_STORE_HEADERS = {
+  Accept: "application/json",
+  "User-Agent": "Mozilla/5.0 (compatible; RetroPhoneServer/1.0; +https://render.com)",
+};
+
+function explain403(status) {
+  return status === 403
+    ? " — probablement bloqué par un pare-feu/anti-bot de l'hébergement PHP (mod_security, Cloudflare...). " +
+        "Vérifier les réglages de sécurité/WAF du site, ou les logs d'erreur du serveur PHP."
+    : "";
+}
+
 async function remoteLoad(key, fallbackJson) {
   const res = await fetch(`${PHP_STORE_URL}?key=${encodeURIComponent(key)}`, {
-    headers: { "X-Store-Secret": PHP_STORE_SECRET },
+    headers: { "X-Store-Secret": PHP_STORE_SECRET, ...REMOTE_STORE_HEADERS },
   });
-  if (!res.ok) throw new Error(`stockage distant : lecture "${key}" a échoué (${res.status})`);
+  if (!res.ok) {
+    throw new Error(`stockage distant : lecture "${key}" a échoué (${res.status})${explain403(res.status)}`);
+  }
   const text = await res.text();
   if (!text.trim()) return fallbackJson;
   return JSON.parse(text);
@@ -66,24 +89,37 @@ async function remoteLoad(key, fallbackJson) {
 async function remoteSave(key, value) {
   const res = await fetch(`${PHP_STORE_URL}?key=${encodeURIComponent(key)}`, {
     method: "POST",
-    headers: { "X-Store-Secret": PHP_STORE_SECRET, "Content-Type": "application/json" },
+    headers: { "X-Store-Secret": PHP_STORE_SECRET, "Content-Type": "application/json", ...REMOTE_STORE_HEADERS },
     body: JSON.stringify(value),
   });
-  if (!res.ok) throw new Error(`stockage distant : écriture "${key}" a échoué (${res.status})`);
+  if (!res.ok) {
+    throw new Error(`stockage distant : écriture "${key}" a échoué (${res.status})${explain403(res.status)}`);
+  }
 }
 
 // --- Clés VAPID : générées une seule fois puis réutilisées (sinon les abonnements
 // existants deviendraient invalides à chaque redémarrage du serveur). ---
 async function loadOrCreateVapidKeys() {
   if (USE_REMOTE_STORE) {
-    // Le store distant renvoie "{}" par défaut quand la clé n'existe pas encore
-    // (indiscernable d'un objet vide) — on vérifie donc la présence réelle de
-    // publicKey plutôt que la simple vérité de l'objet.
-    const existing = await remoteLoad("vapid-keys", null);
-    if (existing && existing.publicKey && existing.privateKey) return existing;
-    const keys = webpush.generateVAPIDKeys();
-    await remoteSave("vapid-keys", keys);
-    return keys;
+    try {
+      // Le store distant renvoie "{}" par défaut quand la clé n'existe pas
+      // encore (indiscernable d'un objet vide) — on vérifie donc la présence
+      // réelle de publicKey plutôt que la simple vérité de l'objet.
+      const existing = await remoteLoad("vapid-keys", null);
+      if (existing && existing.publicKey && existing.privateKey) return existing;
+      const keys = webpush.generateVAPIDKeys();
+      await remoteSave("vapid-keys", keys);
+      return keys;
+    } catch (err) {
+      // On dégrade plutôt que de planter : l'app démarre quand même, juste
+      // sans persistance tant que le store distant n'est pas accessible.
+      console.error(
+        `[stockage] Store distant injoignable au démarrage (${err.message}) — ` +
+          "bascule temporaire sur le stockage fichier local (non persistant sur Render). " +
+          "Corriger PHP_STORE_URL/PHP_STORE_SECRET puis redéployer pour réactiver la persistance."
+      );
+      USE_REMOTE_STORE = false;
+    }
   }
   if (fs.existsSync(KEYS_FILE)) {
     return JSON.parse(fs.readFileSync(KEYS_FILE, "utf8"));
