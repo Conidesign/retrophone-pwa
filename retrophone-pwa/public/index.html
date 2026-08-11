@@ -139,6 +139,10 @@
   }
   @keyframes apptBannerIn { 0%{transform:translateY(-14px); opacity:0;} 100%{transform:translateY(0); opacity:1;} }
 
+  .homeMascot {
+    width: 150px; height: auto; margin-bottom: 6px;
+    filter: drop-shadow(0 6px 12px rgba(58,46,40,0.18));
+  }
   #homeTitle { font-size: 26px; font-weight: 800; margin-bottom: 26px; color: var(--orange-dark); }
   #contactGrid {
     display: grid;
@@ -203,6 +207,20 @@
   .apptEmpty { text-align: center; color: #a8896f; font-size: 14px; padding: 20px 0; font-weight: 500; }
 
   .bigAvatar { font-size: 100px; margin-bottom: 10px; }
+  .bigAvatar img {
+    width: 150px; height: auto; display: block;
+    filter: drop-shadow(0 6px 12px rgba(58,46,40,0.18));
+  }
+  /* Sonnerie : la mascotte "tremble" comme un vieux téléphone qui vibre en
+     sonnant, plus parlant pour un enfant qu'un simple pictogramme fixe. */
+  .bigAvatar.ring img { animation: ring 0.5s infinite; }
+  @keyframes ring {
+    0%, 100% { transform: rotate(0deg); }
+    20% { transform: rotate(-8deg); }
+    40% { transform: rotate(7deg); }
+    60% { transform: rotate(-6deg); }
+    80% { transform: rotate(5deg); }
+  }
   .bigName { font-size: 32px; font-weight: 800; margin-bottom: 6px; color: var(--orange-dark); }
   .subLabel { font-size: 17px; color: #a8896f; margin-bottom: 36px; font-weight: 600; }
   .callActions { display: flex; gap: 34px; }
@@ -307,6 +325,7 @@
   <audio id="remoteAudio" autoplay playsinline></audio>
 
   <div class="screen active" id="screen-home">
+    <img class="homeMascot" src="/mascot/mascot-home.png" alt="" width="560" height="677" />
     <div id="homeTitle">Qui veux-tu appeler ?</div>
     <div id="contactGrid"></div>
     <div class="noContacts" id="noContactsMsg" style="display:none;">
@@ -315,7 +334,7 @@
   </div>
 
   <div class="screen" id="screen-calling">
-    <div class="bigAvatar pulse" id="callingAvatar">📞</div>
+    <div class="bigAvatar pulse" id="callingAvatar"><img src="/mascot/mascot-call.png" alt="" width="360" height="435" /></div>
     <div class="bigName" id="callingName"></div>
     <div class="subLabel" id="callingSubLabel">Ça sonne…</div>
     <div class="callActions">
@@ -324,7 +343,7 @@
   </div>
 
   <div class="screen" id="screen-incoming">
-    <div class="bigAvatar pulse">☎️</div>
+    <div class="bigAvatar ring"><img src="/mascot/mascot-call.png" alt="" width="360" height="435" /></div>
     <div class="bigName" id="incomingName"></div>
     <div class="subLabel">t'appelle…</div>
     <div class="callActions">
@@ -334,7 +353,7 @@
   </div>
 
   <div class="screen" id="screen-incall">
-    <div class="bigAvatar">🔊</div>
+    <div class="bigAvatar"><img src="/mascot/mascot-call.png" alt="" width="360" height="435" /></div>
     <div class="bigName" id="inCallName"></div>
     <div id="callTimer">00:00</div>
     <button id="enableSoundBtn" class="addBtn" style="display:none; max-width:220px;" onclick="retryPlayRemoteAudio()">🔊 Activer le son</button>
