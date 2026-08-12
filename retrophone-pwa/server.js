@@ -157,6 +157,13 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Endpoint minuscule pour les services de "ping" externes (cron-job.org,
+// UptimeRobot...) qui empêchent le plan gratuit de Render de se mettre en
+// veille. À utiliser à la place de "/" : ces services limitent souvent la
+// taille de réponse acceptée (ex. 64 Ko sur cron-job.org), et la page
+// d'accueil complète — avec les mascottes — dépasse déjà cette limite.
+app.get("/healthz", (req, res) => res.status(200).type("text").send("ok"));
+
 // Petit utilitaire réutilisé par les rendez-vous : envoie une notif "best effort"
 // (n'échoue jamais bruyamment — l'app fonctionne aussi sans notification si le
 // destinataire n'y est pas abonné).
