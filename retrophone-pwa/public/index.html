@@ -40,6 +40,10 @@
        à côté de l'orange/moutarde/menthe déjà en place. */
     --fuchsia: #ef4a9d;
     --fuchsia-dark: #c22a76;
+    --skyblue: #3fa9e0;
+    --skyblue-dark: #1f7ab0;
+    --yellow: #f4d233;
+    --yellow-dark: #c9a70f;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -185,6 +189,8 @@
   .contactBtn.c1 { background: var(--mustard); border-color: var(--mustard-dark); color: var(--ink); }
   .contactBtn.c2 { background: var(--mint); border-color: var(--mint-dark); }
   .contactBtn.c3 { background: var(--fuchsia); border-color: var(--fuchsia-dark); }
+  .contactBtn.c4 { background: var(--skyblue); border-color: var(--skyblue-dark); }
+  .contactBtn.c5 { background: var(--yellow); border-color: var(--yellow-dark); color: var(--ink); }
   .contactAvatar {
     font-size: 52px; position: relative;
     width: 58px; height: 58px; display: flex; align-items: center; justify-content: center;
@@ -299,6 +305,8 @@
   .colorOption.c1 { background: var(--mustard); }
   .colorOption.c2 { background: var(--mint); }
   .colorOption.c3 { background: var(--fuchsia); }
+  .colorOption.c4 { background: var(--skyblue); }
+  .colorOption.c5 { background: var(--yellow); }
   .addBtn, .closeBtn {
     margin-top: 16px; width: 100%; padding: 13px; border: none; border-radius: 14px;
     background: var(--mint); color: white; font-size: 16px; font-weight: 700; cursor: pointer;
@@ -507,7 +515,7 @@ function renderAvatarHtml(avatar) {
   }
   return avatar;
 }
-const CONTACT_COLOR_COUNT = 4; // correspond aux classes CSS .c0 à .c3
+const CONTACT_COLOR_COUNT = 6; // correspond aux classes CSS .c0 à .c5
 
 // --- Sonnerie synthétisée (pas de fichier audio externe) ---
 let audioCtx = null;
